@@ -1,4 +1,4 @@
-# SISTEM INFORMASI AKADEMIK MAS Aisyiyah Medan
+# SISTEM INFORMASI AKADEMIK MAS AISYIYAH MEDAN
 
 Dokumentasi ini ditujukan untuk memandu pengembang (developer), penguji, atau akademisi yang ingin memahami, menjalankan, dan memodifikasi Sistem Informasi Akademik (SIAKAD) MAS Aisyiyah Medan. 
 
