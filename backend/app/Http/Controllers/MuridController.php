@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Siswa;
 use App\Models\User;
 use App\Services\EnrollmentService;
 use App\Utils\ApiResponse;
@@ -21,13 +22,15 @@ class MuridController extends Controller
         $validated = $request->validate([
             'search' => 'nullable|string',
             'per_page' => 'nullable|integer',
-            'id_kelas' => 'nullable|integer',
+            'id_kelas' => 'nullable|integer|exists:kelas,id_kelas',
+            'status_siswa' => 'nullable|in:aktif,lulus,tidak_aktif',
         ]);
 
         $paginator = $this->listMurid(
             $validated['search'] ?? null,
             (int) ($validated['per_page'] ?? 15),
-            $validated['id_kelas'] ?? null
+            $validated['id_kelas'] ?? null,
+            $validated['status_siswa'] ?? null
         );
 
         return ApiResponse::paginated($paginator, 'Berhasil mengambil data murid');
@@ -56,6 +59,7 @@ class MuridController extends Controller
             'no_hp' => 'nullable|string',
             'tahun_masuk' => 'required|integer',
             'tahun_lulus' => 'nullable|integer',
+            'status_siswa' => 'nullable|in:aktif,lulus,tidak_aktif',
             'id_kelas' => 'nullable|exists:kelas,id_kelas',
             'status_aktif' => 'nullable|boolean',
         ]);
@@ -87,6 +91,7 @@ class MuridController extends Controller
                 'no_hp' => 'nullable|string',
                 'tahun_masuk' => 'nullable|integer',
                 'tahun_lulus' => 'nullable|integer',
+                'status_siswa' => 'nullable|in:aktif,lulus,tidak_aktif',
                 'id_kelas' => 'nullable|exists:kelas,id_kelas',
                 'status_aktif' => 'nullable|boolean',
             ]);
@@ -127,14 +132,22 @@ class MuridController extends Controller
 
     use AuditsAdminActions;
 
-    private function listMurid(?string $search = null, int $perPage = 15, ?int $idKelas = null): LengthAwarePaginator
-    {
+    private function listMurid(
+        ?string $search = null,
+        int $perPage = 15,
+        ?int $idKelas = null,
+        ?string $statusSiswa = null
+    ): LengthAwarePaginator {
         $query = User::query()
             ->with(['siswa.kelas', 'pendaftaran'])
             ->where('role', 'siswa');
 
         if ($idKelas) {
             $query->whereHas('siswa', fn ($s) => $s->where('id_kelas', $idKelas));
+        }
+
+        if ($statusSiswa) {
+            $query->whereHas('siswa', fn ($s) => $s->where('status_siswa', $statusSiswa));
         }
 
         if ($search) {
@@ -156,23 +169,30 @@ class MuridController extends Controller
     private function getStats(): array
     {
         return [
-            'total_murid' => User::where('role', 'siswa')->count(),
-            'siswa_aktif' => User::where('role', 'siswa')->count(),
+            'total_murid' => Siswa::count(),
+            'siswa_aktif' => Siswa::where('status_siswa', Siswa::STATUS_AKTIF)->count(),
             'calon_siswa' => User::where('role', 'calon_siswa')->count(),
-            'alumni' => User::where('role', 'alumni')->count(),
+            'alumni' => Siswa::where('status_siswa', Siswa::STATUS_LULUS)->count(),
+            'siswa_tidak_aktif' => Siswa::where('status_siswa', Siswa::STATUS_TIDAK_AKTIF)->count(),
         ];
     }
 
     private function createMurid(array $data): User
     {
         return DB::transaction(function () use ($data) {
+            $statusSiswa = $data['status_siswa'] ?? Siswa::STATUS_AKTIF;
+            $akunAktif = $statusSiswa === Siswa::STATUS_AKTIF
+                ? ($data['status_aktif'] ?? true)
+                : false;
+
             $user = User::create([
                 'name' => $data['nama_siswa'],
                 'username' => $data['username'],
                 'email' => $data['email'] ?? null,
                 'password' => Hash::make($data['password']),
                 'role' => 'siswa',
-                'status_aktif' => $data['status_aktif'] ?? true,
+                'status_aktif' => $akunAktif,
+                'status_akun' => $akunAktif ? 'aktif' : 'nonaktif',
             ]);
 
             $user->siswa()->create([
@@ -188,7 +208,11 @@ class MuridController extends Controller
                 'no_hp_wali' => $data['no_hp_wali'] ?? ($data['no_hp'] ?? '-'),
                 'no_hp' => $data['no_hp'] ?? null,
                 'tahun_masuk' => $data['tahun_masuk'],
-                'tahun_lulus' => $data['tahun_lulus'] ?? null,
+                'tahun_lulus' => $statusSiswa === Siswa::STATUS_LULUS
+                    ? ($data['tahun_lulus'] ?? now()->year)
+                    : null,
+                'status_siswa' => $statusSiswa,
+                'status_diubah_pada' => now(),
                 'id_kelas' => $data['id_kelas'] ?? null,
             ]);
 
@@ -202,6 +226,7 @@ class MuridController extends Controller
     private function updateMurid(int $id, array $data): User
     {
         $user = User::findOrFail($id);
+        $statusSebelum = $user->siswa?->status_siswa ?? Siswa::STATUS_AKTIF;
         if (! in_array($user->role, ['siswa', 'calon_siswa'], true)) {
             throw new InvalidArgumentException('User bukan murid/calon siswa.');
         }
@@ -216,13 +241,24 @@ class MuridController extends Controller
         }
 
         DB::transaction(function () use ($user, $data) {
+            $statusLama = $user->siswa?->status_siswa ?? Siswa::STATUS_AKTIF;
+            $statusSiswa = $data['status_siswa'] ?? $statusLama;
+            $akunAktif = $statusSiswa === Siswa::STATUS_AKTIF
+                ? ($data['status_aktif'] ?? $user->status_aktif)
+                : false;
+
             $user->update([
-                'status_aktif' => $data['status_aktif'] ?? $user->status_aktif,
+                'status_aktif' => $akunAktif,
+                'status_akun' => $akunAktif ? 'aktif' : 'nonaktif',
             ]);
+
+            if (! $akunAktif) {
+                $user->tokens()->delete();
+            }
 
             if ($user->siswa) {
                 $siswaData = [];
-                $fields = ['nama_siswa', 'nisn', 'nis', 'jenis_kelamin', 'tempat_lahir', 'tanggal_lahir', 'alamat', 'no_hp', 'tahun_masuk', 'tahun_lulus', 'id_kelas'];
+                $fields = ['nama_siswa', 'nisn', 'nis', 'jenis_kelamin', 'tempat_lahir', 'tanggal_lahir', 'alamat', 'no_hp', 'tahun_masuk', 'id_kelas'];
                 foreach ($fields as $field) {
                     if (array_key_exists($field, $data)) {
                         // Prevent wiping NOT NULL columns
@@ -233,6 +269,15 @@ class MuridController extends Controller
                     }
                 }
 
+                $siswaData['status_siswa'] = $statusSiswa;
+                $siswaData['tahun_lulus'] = $statusSiswa === Siswa::STATUS_LULUS
+                    ? ($data['tahun_lulus'] ?? $user->siswa->tahun_lulus ?? now()->year)
+                    : null;
+
+                if ($statusSiswa !== $statusLama) {
+                    $siswaData['status_diubah_pada'] = now();
+                }
+
                 if (! empty($siswaData)) {
                     $user->siswa->update($siswaData);
                 }
@@ -240,7 +285,12 @@ class MuridController extends Controller
         });
 
         $fresh = $user->fresh(['siswa', 'pendaftaran']);
-        $this->auditAdmin('murid.update', $fresh, ['username' => $fresh->username]);
+        $this->auditAdmin('murid.update', $fresh, [
+            'username' => $fresh->username,
+            'status_sebelum' => $statusSebelum,
+            'status_sesudah' => $fresh->siswa?->status_siswa,
+            'tahun_lulus' => $fresh->siswa?->tahun_lulus,
+        ]);
 
         return $fresh;
     }
@@ -251,6 +301,24 @@ class MuridController extends Controller
         if (! in_array($user->role, ['siswa', 'calon_siswa'], true)) {
             throw new InvalidArgumentException('User bukan murid/calon siswa.');
         }
+
+        if ($user->role === 'siswa') {
+            if ($user->siswa?->status_siswa === Siswa::STATUS_LULUS) {
+                throw new InvalidArgumentException(
+                    'Data alumni tidak boleh dihapus. Gunakan arsip alumni untuk mempertahankan riwayat akademik.'
+                );
+            }
+
+            $hasAcademicHistory = DB::table('nilai')->where('id_user_siswa', $id)->exists()
+                || DB::table('absensi')->where('id_user_siswa', $id)->exists();
+
+            if ($hasAcademicHistory) {
+                throw new InvalidArgumentException(
+                    'Data murid memiliki riwayat nilai atau absensi dan tidak boleh dihapus permanen. Ubah statusnya menjadi Tidak Aktif.'
+                );
+            }
+        }
+
         $this->auditAdmin('murid.delete', $user, ['username' => $user->username]);
         $user->delete();
     }

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Exceptions\JadwalConflictException;
 use App\Http\Resources\JadwalResource;
 use App\Models\JadwalPelajaran;
 use App\Models\Mapel;
@@ -15,13 +14,11 @@ use App\Utils\SearchInput;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class JadwalController extends Controller
 {
     public function __construct() {}
-
 
     public function adminIndex(Request $request)
     {
@@ -89,7 +86,6 @@ class JadwalController extends Controller
             return ApiResponse::error('Gagal menghapus jadwal', 500);
         }
     }
-
 
     public function guruIndex(Request $request)
     {
@@ -159,6 +155,7 @@ class JadwalController extends Controller
         }
 
         $murid = Siswa::with('user')
+            ->aktif()
             ->where('id_kelas', $validated['id_kelas'])
             ->orderBy('nama_siswa')
             ->get()
@@ -242,8 +239,8 @@ class JadwalController extends Controller
         }
 
         return $query->get()->map(
-                fn ($item) => (new JadwalResource($item))->resolve()
-            );
+            fn ($item) => (new JadwalResource($item))->resolve()
+        );
     }
 
     private function listForSiswa(int $userId, ?string $tahunAjaran = null, ?string $semester = null): Collection
@@ -265,8 +262,8 @@ class JadwalController extends Controller
         }
 
         return $query->get()->map(
-                fn ($item) => (new JadwalResource($item))->resolve()
-            );
+            fn ($item) => (new JadwalResource($item))->resolve()
+        );
     }
 
     private function create(array $data): array
@@ -292,6 +289,4 @@ class JadwalController extends Controller
         $this->auditAdmin('jadwal.delete', $jadwal, ['id_jadwal' => $jadwal->id_jadwal]);
         $jadwal->delete();
     }
-
-
 }

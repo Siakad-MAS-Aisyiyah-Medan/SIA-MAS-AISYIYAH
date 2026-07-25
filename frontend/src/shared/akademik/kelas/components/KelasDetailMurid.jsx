@@ -20,7 +20,11 @@ export default function KelasDetailMurid({ kelas, onBack }) {
 
       setLoading(true);
       try {
-        const data = await fetchMuridList({ id_kelas: kelas.id_kelas, per_page: 200 });
+        const data = await fetchMuridList({
+          id_kelas: kelas.id_kelas,
+          status_siswa: 'aktif',
+          per_page: 200,
+        });
         if (active) {
           setStudents(data || []);
         }

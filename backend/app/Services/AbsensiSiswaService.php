@@ -19,6 +19,7 @@ class AbsensiSiswaService
         $this->assertGuruCanRecord($guruId, (int) $params['id_mapel']);
 
         $siswaList = Siswa::with('user')
+            ->aktif()
             ->where('id_kelas', $params['id_kelas'])
             ->orderBy('nama_siswa')
             ->get();

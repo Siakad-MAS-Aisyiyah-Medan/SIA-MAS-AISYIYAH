@@ -26,6 +26,7 @@ const initialForm = {
   tahun_masuk: new Date().getFullYear(),
   tahun_lulus: '',
   id_kelas: '',
+  status_siswa: 'aktif',
   status_aktif: true,
 };
 
@@ -33,6 +34,9 @@ export function useMurid() {
   const [muridData, setMuridData] = useState([]);
   const [stats, setStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [kelasFilter, setKelasFilter] = useState('');
+  const [kelasOptions, setKelasOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
 
@@ -45,7 +49,12 @@ export function useMurid() {
     setIsFetching(true);
     try {
       const [data, statsData] = await Promise.all([
-        fetchMuridList({ search: searchQuery || undefined, per_page: 2000 }),
+        fetchMuridList({
+          search: searchQuery || undefined,
+          status_siswa: statusFilter || undefined,
+          id_kelas: kelasFilter || undefined,
+          per_page: 2000,
+        }),
         fetchMuridStats()
       ]);
       setMuridData(data);
@@ -55,11 +64,17 @@ export function useMurid() {
     } finally {
       setIsFetching(false);
     }
-  }, [searchQuery]);
+  }, [kelasFilter, searchQuery, statusFilter]);
 
   useEffect(() => {
     loadMurid();
   }, [loadMurid]);
+
+  useEffect(() => {
+    fetchKelasList({ per_page: 500 })
+      .then((items) => setKelasOptions(Array.isArray(items) ? items : []))
+      .catch(() => setKelasOptions([]));
+  }, []);
 
   const filteredData = useMemo(() => {
     if (!searchQuery) return muridData;
@@ -137,10 +152,11 @@ export function useMurid() {
     }
   };
 
-  const removeMurid = async (id_user) => {
+  const removeMurid = async (murid) => {
+    const idUser = typeof murid === 'object' ? murid.id_user : murid;
     const ok = await confirmAction({
       title: 'Hapus Data Murid?',
-      text: 'Seluruh data profil dan akun akan dihapus permanen!',
+      text: 'Gunakan aksi ini hanya untuk data salah atau duplikat. Murid yang pernah memiliki nilai/absensi harus diubah menjadi Tidak Aktif.',
       confirmText: 'Ya, Hapus!',
       confirmColor: '#ef4444',
     });
@@ -148,7 +164,7 @@ export function useMurid() {
     if (!ok) return;
 
     try {
-      await deleteMurid(id_user);
+      await deleteMurid(idUser);
       toastSuccess('Terhapus!', 'Data berhasil dihapus');
       loadMurid();
     } catch (error) {
@@ -179,6 +195,7 @@ export function useMurid() {
       tahun_masuk: s.tahun_masuk || new Date().getFullYear(),
       tahun_lulus: s.tahun_lulus || '',
       id_kelas: s.id_kelas || '',
+      status_siswa: s.status_siswa || 'aktif',
       status_aktif: user.status_aktif !== undefined ? user.status_aktif : true,
     });
     setEditId(user.id_user);
@@ -193,10 +210,24 @@ export function useMurid() {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    setFormData((prev) => {
+      const nextValue = type === 'checkbox' ? checked : value;
+      const next = { ...prev, [name]: nextValue };
+
+      if (name === 'status_siswa') {
+        if (value === 'lulus') {
+          next.tahun_lulus = prev.tahun_lulus || new Date().getFullYear();
+          next.status_aktif = false;
+        } else {
+          next.tahun_lulus = '';
+          if (value === 'tidak_aktif') {
+            next.status_aktif = false;
+          }
+        }
+      }
+
+      return next;
+    });
   };
 
   const submitForm = async (e) => {
@@ -211,6 +242,7 @@ export function useMurid() {
       !formData.alamat?.trim() ||
       !formData.no_hp?.trim() ||
       !formData.tahun_masuk ||
+      !formData.status_siswa ||
       formData.status_aktif === undefined
     ) {
       import('@/shared/hooks/useConfirm').then(({ toastValidation }) => {
@@ -261,6 +293,11 @@ export function useMurid() {
     view,
     searchQuery,
     setSearchQuery,
+    statusFilter,
+    setStatusFilter,
+    kelasFilter,
+    setKelasFilter,
+    kelasOptions,
     filteredData,
     stats,
     loading,
@@ -273,5 +310,6 @@ export function useMurid() {
     submitForm,
     promoteMurid,
     removeMurid,
+    refreshData: loadMurid,
   };
 }

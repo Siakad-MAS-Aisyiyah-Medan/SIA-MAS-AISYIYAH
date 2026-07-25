@@ -114,8 +114,14 @@ export default function MuridForm({ view, formData, loading, onChange, onSubmit,
               </div>
               <div>
                 <FormLabel>Tahun Lulus</FormLabel>
-                <select name="tahun_lulus" value={formData.tahun_lulus || ''} onChange={onChange} className="form-control" disabled={readOnly}>
-                  <option value="">Pilih tahun lulus</option>
+                <select
+                  name="tahun_lulus"
+                  value={formData.tahun_lulus || ''}
+                  onChange={onChange}
+                  className="form-control"
+                  disabled={readOnly || formData.status_siswa !== 'lulus'}
+                >
+                  <option value="">{formData.status_siswa === 'lulus' ? 'Pilih tahun lulus' : 'Hanya untuk murid lulus'}</option>
                   {Array.from({ length: 10 }).map((_, i) => {
                     const year = 2024 + i;
                     return <option key={year} value={year}>{year}</option>;
@@ -123,18 +129,40 @@ export default function MuridForm({ view, formData, loading, onChange, onSubmit,
                 </select>
               </div>
 
-              <div style={{ gridColumn: '1/-1' }}>
-                <FormLabel required>Status</FormLabel>
+              <div>
+                <FormLabel required>Status Akademik</FormLabel>
                 <select
-                  name="status_aktif"
-                  value={formData.status_aktif !== undefined ? (formData.status_aktif ? '1' : '0') : '1'}
-                  onChange={(e) => onChange({ target: { name: 'status_aktif', value: e.target.value === '1' } })}
+                  name="status_siswa"
+                  value={formData.status_siswa || 'aktif'}
+                  onChange={onChange}
                   className="form-control"
                   disabled={readOnly}
+                  required
                 >
-                  <option value="1">Aktif</option>
-                  <option value="0">Nonaktif</option>
+                  <option value="aktif">Aktif</option>
+                  <option value="lulus">Lulus</option>
+                  <option value="tidak_aktif">Tidak Aktif</option>
                 </select>
+              </div>
+              <div>
+                <FormLabel required>Akses Akun</FormLabel>
+                <select
+                  name="status_aktif"
+                  value={formData.status_aktif ? '1' : '0'}
+                  onChange={(event) => onChange({
+                    target: { name: 'status_aktif', value: event.target.value === '1' },
+                  })}
+                  className="form-control"
+                  disabled={readOnly || formData.status_siswa !== 'aktif'}
+                >
+                  <option value="1">Dapat Login</option>
+                  <option value="0">Tidak Dapat Login</option>
+                </select>
+                {formData.status_siswa !== 'aktif' ? (
+                  <p style={{ margin: '0.4rem 0 0', color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>
+                    Akun otomatis dinonaktifkan untuk murid lulus atau tidak aktif.
+                  </p>
+                ) : null}
               </div>
               
               {view === 'add' && (
@@ -180,4 +208,3 @@ function FormLabel({ children, required }) {
     </label>
   );
 }
-

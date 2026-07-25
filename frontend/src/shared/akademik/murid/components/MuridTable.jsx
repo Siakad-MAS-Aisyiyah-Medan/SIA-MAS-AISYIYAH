@@ -1,4 +1,4 @@
-import { Download, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Filter, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 
 import PageHeader from '@/shared/components/PageHeader';
 
@@ -8,6 +8,11 @@ export default function MuridTable({
   data,
   searchQuery,
   onSearchChange,
+  statusFilter = '',
+  onStatusFilterChange,
+  kelasFilter = '',
+  onKelasFilterChange,
+  kelasOptions = [],
   onPromote,
   onDelete,
   onEdit,
@@ -17,7 +22,7 @@ export default function MuridTable({
 }) {
   const handleDownload = () => {
     const dataToExport = data.map(item => {
-      const isAktif = item.status_aktif !== false;
+      const status = item.siswa?.status_siswa || 'aktif';
       const nama = item.siswa?.nama_siswa || item.pendaftaran?.nama_lengkap || '-';
       const jenisKelamin = item.siswa?.jenis_kelamin || item.pendaftaran?.jenis_kelamin;
       const jkelLabel = jenisKelamin === 'L' ? 'Laki-Laki' : jenisKelamin === 'P' ? 'Perempuan' : '-';
@@ -27,8 +32,8 @@ export default function MuridTable({
         'NISN': item.siswa?.nisn || item.pendaftaran?.nisn || '-',
         'Jenis Kelamin': jkelLabel,
         'Kelas': item.siswa?.kelas?.nama_kelas || '-',
-        'Tahun Keluar': item.siswa?.tahun_lulus || '-',
-        'Status': isAktif ? 'Aktif' : 'Nonaktif',
+        'Tahun Lulus': item.siswa?.tahun_lulus || '-',
+        'Status': statusLabel(status),
         'Alamat': item.siswa?.alamat || item.pendaftaran?.alamat || '-',
       };
     });
@@ -60,7 +65,7 @@ export default function MuridTable({
         </div>
       </PageHeader>
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-4 px-6 pt-4">
+      <div className="flex flex-col sm:flex-row gap-4 mb-4 px-6 pt-4" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '400px' }}>
           <Search size={16} style={{ position: 'absolute', left: '0.85rem', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
           <input
@@ -70,6 +75,36 @@ export default function MuridTable({
             placeholder="Cari data murid..."
             style={{ paddingLeft: '2.5rem', height: '42px', border: '1px solid var(--color-border)', borderRadius: '10px', fontSize: '0.875rem', outline: 'none', width: '100%', background: '#fff', color: 'var(--color-text-dark)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
           />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Filter size={16} style={{ color: 'var(--color-text-muted)' }} aria-hidden="true" />
+          <select
+            aria-label="Filter status murid"
+            value={statusFilter}
+            onChange={(event) => onStatusFilterChange?.(event.target.value)}
+            className="form-control"
+            style={{ width: '170px', height: '42px', background: '#fff' }}
+          >
+            <option value="">Semua Status</option>
+            <option value="aktif">Aktif</option>
+            <option value="lulus">Lulus</option>
+            <option value="tidak_aktif">Tidak Aktif</option>
+          </select>
+          <select
+            aria-label="Filter kelas murid"
+            value={kelasFilter}
+            onChange={(event) => onKelasFilterChange?.(event.target.value)}
+            className="form-control"
+            style={{ width: '200px', height: '42px', background: '#fff' }}
+          >
+            <option value="">Semua Kelas</option>
+            {kelasOptions.map((kelas) => (
+              <option key={kelas.id_kelas} value={kelas.id_kelas}>
+                {kelas.nama_kelas}
+                {kelas.tahun_ajaran ? ` — ${kelas.tahun_ajaran}` : ''}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -99,7 +134,8 @@ export default function MuridTable({
               </tr>
             ) : data.length > 0 ? (
               data.map((murid, idx) => {
-                const isAktif = murid.status_aktif !== false;
+                const status = murid.siswa?.status_siswa || 'aktif';
+                const badge = statusBadge(status);
                 const nama = murid.siswa?.nama_siswa || murid.pendaftaran?.nama_lengkap || '-';
                 const nisn = murid.siswa?.nisn || murid.pendaftaran?.nisn || '-';
                 return (
@@ -116,11 +152,11 @@ export default function MuridTable({
                         borderRadius: '50px',
                         fontSize: '0.75rem',
                         fontWeight: 700,
-                        background: isAktif ? 'var(--color-primary-soft)' : '#fef2f2',
-                        color: isAktif ? 'var(--color-primary-dark)' : '#991b1b',
-                        border: `1px solid ${isAktif ? 'var(--color-primary-light)' : '#fecaca'}`,
+                        background: badge.background,
+                        color: badge.color,
+                        border: `1px solid ${badge.border}`,
                       }}>
-                        {isAktif ? 'Aktif' : 'Nonaktif'}
+                        {statusLabel(status)}
                       </span>
                     </td>
                     {!readOnly ? (
@@ -134,9 +170,11 @@ export default function MuridTable({
                               <ShieldCheck size={15} />
                             </button>
                           )}
-                          <button type="button" onClick={() => onDelete && onDelete(murid.id_user)} className="btn-icon delete" title="Hapus">
-                            <Trash2 size={15} />
-                          </button>
+                          {status !== 'lulus' ? (
+                            <button type="button" onClick={() => onDelete && onDelete(murid)} className="btn-icon delete" title="Hapus data salah/duplikat">
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     ) : null}
@@ -149,7 +187,7 @@ export default function MuridTable({
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ fontSize: '2rem' }}>🎓</div>
                     <p style={{ fontWeight: 600 }}>Data murid tidak ditemukan</p>
-                    <p style={{ fontSize: '0.875rem' }}>Tambah murid baru untuk memulai</p>
+                    <p style={{ fontSize: '0.875rem' }}>Coba ubah pencarian atau filter yang digunakan</p>
                   </div>
                 </td>
               </tr>
@@ -163,4 +201,24 @@ export default function MuridTable({
       </div>
     </div>
   );
+}
+
+function statusLabel(status) {
+  if (status === 'lulus') return 'Lulus';
+  if (status === 'tidak_aktif') return 'Tidak Aktif';
+  return 'Aktif';
+}
+
+function statusBadge(status) {
+  if (status === 'lulus') {
+    return { background: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
+  }
+  if (status === 'tidak_aktif') {
+    return { background: '#f8fafc', color: '#475569', border: '#cbd5e1' };
+  }
+  return {
+    background: 'var(--color-primary-soft)',
+    color: 'var(--color-primary-dark)',
+    border: 'var(--color-primary-light)',
+  };
 }

@@ -121,6 +121,8 @@ class SiswaImport
                     'nama_wali' => $row['nama_wali'] ?? '-',
                     'no_hp_wali' => $row['no_hp_wali'] ?? $noHp,
                     'no_hp' => $noHp,
+                    'status_siswa' => Siswa::STATUS_AKTIF,
+                    'status_diubah_pada' => now(),
                 ]);
                 $rowIndex++;
             }

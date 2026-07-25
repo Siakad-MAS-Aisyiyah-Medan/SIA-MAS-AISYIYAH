@@ -72,6 +72,14 @@ class KelasController extends Controller
 
     public function destroy($id)
     {
+        $kelas = Kelas::withCount('siswa')->findOrFail((int) $id);
+        if ($kelas->siswa_count > 0) {
+            return ApiResponse::error(
+                'Kelas masih terhubung dengan data murid atau alumni. Ubah status kelas menjadi nonaktif agar riwayat kelas tetap tersimpan.',
+                422
+            );
+        }
+
         $this->delete((int) $id);
 
         return ApiResponse::success(null, 'Kelas berhasil dihapus');
@@ -83,7 +91,11 @@ class KelasController extends Controller
 
     private function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = Kelas::with(['waliKelas.guru'])->withCount(['jadwal', 'siswa']);
+        $query = Kelas::with(['waliKelas.guru'])
+            ->withCount([
+                'jadwal',
+                'siswa as siswa_count' => fn ($q) => $q->aktif(),
+            ]);
 
         if (! empty($filters['search'])) {
             $term = SearchInput::escape($filters['search']);

@@ -12,6 +12,11 @@ export default function MuridPage({ readOnly = false }) {
     view,
     searchQuery,
     setSearchQuery,
+    statusFilter,
+    setStatusFilter,
+    kelasFilter,
+    setKelasFilter,
+    kelasOptions,
     filteredData,
     isFetching,
     formData,
@@ -77,6 +82,11 @@ export default function MuridPage({ readOnly = false }) {
           data={filteredData}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          kelasFilter={kelasFilter}
+          onKelasFilterChange={setKelasFilter}
+          kelasOptions={kelasOptions}
           onPromote={readOnly ? undefined : promoteMurid}
           onDelete={readOnly ? undefined : removeMurid}
           onEdit={readOnly ? undefined : openEdit}

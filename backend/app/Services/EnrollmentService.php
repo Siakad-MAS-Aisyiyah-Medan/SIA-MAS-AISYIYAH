@@ -46,9 +46,13 @@ class EnrollmentService
                 'nama_wali' => $pendaftaran->nama_wali ?: $pendaftaran->nama_ayah ?: '-',
                 'no_hp_wali' => $pendaftaran->no_telp ?: '-',
                 'id_kelas' => $idKelas,
+                'status_siswa' => Siswa::STATUS_AKTIF,
+                'status_diubah_pada' => now(),
             ]);
 
             $user->role = 'siswa';
+            $user->status_aktif = true;
+            $user->status_akun = 'aktif';
             $user->save();
 
             $pendaftaran = $this->pendaftaranState->markEnrolled($pendaftaran);
