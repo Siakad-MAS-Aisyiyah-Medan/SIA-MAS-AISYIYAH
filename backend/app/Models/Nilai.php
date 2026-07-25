@@ -14,6 +14,7 @@ class Nilai extends Model
         'id_user_siswa',
         'id_mapel',
         'id_guru_input',
+        'id_skema',
         'semester',
         'tahun_ajaran',
         'nilai_tugas',
@@ -59,5 +60,10 @@ class Nilai extends Model
     public function waliValidator()
     {
         return $this->belongsTo(User::class, 'id_wali_validator', 'id_user');
+    }
+
+    public function skema()
+    {
+        return $this->belongsTo(SkemaPenilaian::class, 'id_skema', 'id_skema');
     }
 }

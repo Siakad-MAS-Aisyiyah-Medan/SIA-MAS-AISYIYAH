@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Nilai;
+use App\Services\FlexibleNilaiService;
 use App\Services\NilaiService;
 use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
@@ -15,7 +16,8 @@ class NilaiController extends Controller
     use AuditsAdminActions;
 
     public function __construct(
-        private NilaiService $nilaiService
+        private NilaiService $nilaiService,
+        private FlexibleNilaiService $flexibleNilaiService
     ) {}
 
     public function guruFormData(Request $request)
@@ -28,11 +30,86 @@ class NilaiController extends Controller
         ]);
 
         try {
-            $data = $this->nilaiService->getFormData((int) $request->user()->id_user, $validated);
+            $data = $this->flexibleNilaiService->getFormData((int) $request->user()->id_user, $validated);
 
             return ApiResponse::success($data, 'Berhasil mengambil daftar nilai siswa');
         } catch (InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), 422);
+        }
+    }
+
+    public function guruSaveScheme(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'id_skema' => 'required|exists:skema_penilaian,id_skema',
+                'nama_skema' => 'required|string|max:100',
+                'komponen' => 'required|array|min:1',
+                'komponen.*.id_komponen' => 'nullable|integer|exists:komponen_penilaian,id_komponen',
+                'komponen.*.nama_komponen' => 'required|string|max:60',
+                'komponen.*.bobot' => 'required|numeric|gt:0|max:100',
+            ]);
+        } catch (ValidationException $e) {
+            return ApiResponse::error('Validasi gagal.', 422, $e->errors());
+        }
+
+        try {
+            $scheme = $this->flexibleNilaiService->saveScheme((int) $request->user()->id_user, $validated);
+
+            $this->auditAdmin('guru.nilai.skema_update', null, [
+                'id_skema' => $validated['id_skema'],
+                'nama_skema' => $validated['nama_skema'],
+                'jumlah_komponen' => count($validated['komponen']),
+            ]);
+
+            return ApiResponse::success($scheme, 'Pengaturan nilai berhasil disimpan');
+        } catch (InvalidArgumentException $e) {
+            return ApiResponse::error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ApiResponse::error('Gagal menyimpan pengaturan nilai', 500);
+        }
+    }
+
+    public function guruBulkStoreComponent(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'meta' => 'required|array',
+                'meta.id_skema' => 'required|exists:skema_penilaian,id_skema',
+                'meta.id_komponen' => 'required|exists:komponen_penilaian,id_komponen',
+                'meta.id_kelas' => 'required|exists:kelas,id_kelas',
+                'meta.id_mapel' => 'required|exists:mata_pelajaran,id_mapel',
+                'meta.tahun_ajaran' => 'required|string|max:20',
+                'meta.semester' => 'required|in:Ganjil,Genap',
+                'items' => 'required|array|min:1',
+                'items.*.id_user_siswa' => 'required|distinct|exists:users,id_user',
+                'items.*.nilai' => 'nullable|numeric|min:0|max:100',
+            ]);
+        } catch (ValidationException $e) {
+            return ApiResponse::error('Validasi gagal.', 422, $e->errors());
+        }
+
+        try {
+            $result = $this->flexibleNilaiService->saveComponentScores(
+                (int) $request->user()->id_user,
+                $validated
+            );
+
+            $this->auditAdmin('guru.nilai.komponen_bulk_store', null, [
+                'id_komponen' => $validated['meta']['id_komponen'],
+                'id_skema' => $validated['meta']['id_skema'],
+                'jumlah_murid' => count($validated['items']),
+            ]);
+
+            return ApiResponse::success($result, 'Nilai komponen berhasil disimpan');
+        } catch (InvalidArgumentException $e) {
+            return ApiResponse::error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ApiResponse::error('Gagal menyimpan nilai komponen', 500);
         }
     }
 

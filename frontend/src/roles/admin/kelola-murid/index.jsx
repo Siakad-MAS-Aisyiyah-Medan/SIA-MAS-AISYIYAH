@@ -1,6 +1,7 @@
 import AdminPageShell from '@/shared/components/AdminPageShell';
 import MuridTable from '@/shared/akademik/murid/components/MuridTable';
 import MuridForm from '@/shared/akademik/murid/components/MuridForm';
+import MuridDetail from '@/shared/akademik/murid/components/MuridDetail';
 import ImportExcelModal from '@/shared/components/ImportExcelModal';
 import { useMurid } from '@/shared/akademik/murid/hooks/useMurid';
 import { useState } from 'react';
@@ -20,9 +21,11 @@ export default function MuridPage({ readOnly = false }) {
     filteredData,
     isFetching,
     formData,
+    selectedMurid,
     loading,
     openAdd,
     openEdit,
+    openDetail,
     cancelForm,
     handleChange,
     submitForm,
@@ -88,11 +91,19 @@ export default function MuridPage({ readOnly = false }) {
           onKelasFilterChange={setKelasFilter}
           kelasOptions={kelasOptions}
           onPromote={readOnly ? undefined : promoteMurid}
+          onView={openDetail}
           onDelete={readOnly ? undefined : removeMurid}
           onEdit={readOnly ? undefined : openEdit}
           isFetching={isFetching}
           readOnly={readOnly}
           onAdd={readOnly ? undefined : openAdd}
+        />
+      ) : view === 'detail' ? (
+        <MuridDetail
+          murid={selectedMurid}
+          onBack={cancelForm}
+          onEdit={readOnly ? undefined : openEdit}
+          readOnly={readOnly}
         />
       ) : (
         <MuridForm

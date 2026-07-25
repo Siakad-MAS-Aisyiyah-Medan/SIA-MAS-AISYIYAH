@@ -44,6 +44,7 @@ export function useMurid() {
   const [view, setView] = useState('list');
   const [formData, setFormData] = useState(initialForm);
   const [editId, setEditId] = useState(null);
+  const [selectedMurid, setSelectedMurid] = useState(null);
 
   const loadMurid = useCallback(async () => {
     setIsFetching(true);
@@ -199,13 +200,21 @@ export function useMurid() {
       status_aktif: user.status_aktif !== undefined ? user.status_aktif : true,
     });
     setEditId(user.id_user);
+    setSelectedMurid(user);
     setView('edit');
+  };
+
+  const openDetail = (user) => {
+    setSelectedMurid(user);
+    setEditId(user.id_user);
+    setView('detail');
   };
 
   const cancelForm = () => {
     setView('list');
     setFormData(initialForm);
     setEditId(null);
+    setSelectedMurid(null);
   };
 
   const handleChange = (e) => {
@@ -303,8 +312,10 @@ export function useMurid() {
     loading,
     isFetching,
     formData,
+    selectedMurid,
     openAdd,
     openEdit,
+    openDetail,
     cancelForm,
     handleChange,
     submitForm,

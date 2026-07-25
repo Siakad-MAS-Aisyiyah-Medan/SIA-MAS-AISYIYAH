@@ -1,4 +1,4 @@
-import { Download, Filter, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Eye, Filter, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 
 import PageHeader from '@/shared/components/PageHeader';
 
@@ -8,6 +8,7 @@ export default function MuridTable({
   data,
   searchQuery,
   onSearchChange,
+  onView,
   statusFilter = '',
   onStatusFilterChange,
   kelasFilter = '',
@@ -119,13 +120,13 @@ export default function MuridTable({
               <th>Kelas</th>
               <th>Tahun Lulus</th>
               <th>Status</th>
-              {!readOnly ? <th style={{ textAlign: 'right', paddingRight: '2rem' }}>Aksi</th> : null}
+              {onView || !readOnly ? <th style={{ textAlign: 'right', paddingRight: '2rem' }}>Aksi</th> : null}
             </tr>
           </thead>
           <tbody>
             {isFetching ? (
               <tr>
-                <td colSpan={readOnly ? 6 : 7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                <td colSpan={onView || !readOnly ? 7 : 6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
                     <div className="animate-spin" style={{ width: '20px', height: '20px', border: '2px solid var(--color-primary-light)', borderTopColor: 'var(--color-primary)', borderRadius: '50%' }} />
                     Memuat data murid...
@@ -159,18 +160,25 @@ export default function MuridTable({
                         {statusLabel(status)}
                       </span>
                     </td>
-                    {!readOnly ? (
+                    {onView || !readOnly ? (
                       <td style={{ paddingRight: '2rem' }}>
                         <div className="actions-cell">
-                          <button type="button" onClick={() => onEdit && onEdit(murid)} className="btn-icon edit" title="Edit">
-                            <Pencil size={15} />
-                          </button>
-                          {onPromote && murid.role !== 'siswa' && (
+                          {onView ? (
+                            <button type="button" onClick={() => onView(murid)} className="btn-icon" title="Lihat detail" aria-label={`Lihat detail ${nama}`}>
+                              <Eye size={15} />
+                            </button>
+                          ) : null}
+                          {!readOnly ? (
+                            <button type="button" onClick={() => onEdit && onEdit(murid)} className="btn-icon edit" title="Edit" aria-label={`Edit ${nama}`}>
+                              <Pencil size={15} />
+                            </button>
+                          ) : null}
+                          {!readOnly && onPromote && murid.role !== 'siswa' ? (
                             <button type="button" onClick={() => onPromote(murid)} className="btn-icon" title="Promosikan" style={{ background: 'var(--color-primary-soft)', borderColor: 'var(--color-primary-light)', color: 'var(--color-primary)' }}>
                               <ShieldCheck size={15} />
                             </button>
-                          )}
-                          {status !== 'lulus' ? (
+                          ) : null}
+                          {!readOnly && status !== 'lulus' ? (
                             <button type="button" onClick={() => onDelete && onDelete(murid)} className="btn-icon delete" title="Hapus data salah/duplikat">
                               <Trash2 size={15} />
                             </button>
@@ -183,7 +191,7 @@ export default function MuridTable({
               })
             ) : (
               <tr>
-                <td colSpan={readOnly ? 6 : 7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                <td colSpan={onView || !readOnly ? 7 : 6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ fontSize: '2rem' }}>🎓</div>
                     <p style={{ fontWeight: 600 }}>Data murid tidak ditemukan</p>

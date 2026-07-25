@@ -20,7 +20,8 @@ Route::middleware(['auth:sanctum', 'permission:manage_absensi_siswa'])->group(fu
 
 Route::middleware(['auth:sanctum', 'permission:manage_nilai_siswa'])->group(function () {
     Route::get('/guru/nilai/form', [NilaiController::class, 'guruFormData']);
+    Route::put('/guru/nilai/skema', [NilaiController::class, 'guruSaveScheme']);
+    Route::post('/guru/nilai/komponen/bulk', [NilaiController::class, 'guruBulkStoreComponent']);
     Route::post('/guru/nilai/bulk', [NilaiController::class, 'guruBulkStore']);
 });
-
 
