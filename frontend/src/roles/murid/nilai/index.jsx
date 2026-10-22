@@ -1,3 +1,4 @@
+import { currentAcademicYear } from '@/shared/utils/academicPeriod';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import MainLayout from '@/shared/layouts/MainLayout';
@@ -18,7 +19,7 @@ export default function SiswaNilaiPage() {
   const [tahunAjaranList, setTahunAjaranList] = useState([]);
   const [filters, setFilters] = useState({
     semester: 'Ganjil',
-    tahun_ajaran: '2025/2026'
+    tahun_ajaran: currentAcademicYear()
   });
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function SiswaNilaiPage() {
       setTahunAjaranList(data || []);
       const active = data?.find(t => String(t.status || '').toLowerCase() === 'aktif');
       if (active) {
-        setFilters(p => ({ ...p, tahun_ajaran: active.tahun_ajaran }));
+        setFilters(p => ({ ...p, tahun_ajaran: active.tahun_ajaran, semester: active.semester }));
       }
     }).catch(console.error);
   }, []);
@@ -92,7 +93,7 @@ export default function SiswaNilaiPage() {
               {tahunAjaranList.map((ta, idx) => (
                 <option key={ta.id_tahun_ajaran || ta.tahun_ajaran || idx} value={ta.tahun_ajaran}>{ta.tahun_ajaran}</option>
               ))}
-              {tahunAjaranList.length === 0 && <option value="2025/2026">2025/2026</option>}
+              {tahunAjaranList.length === 0 && <option value={currentAcademicYear()}>{currentAcademicYear()}</option>}
             </select>
             <select
               value={filters.semester}
@@ -126,7 +127,7 @@ export default function SiswaNilaiPage() {
               <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#064e3b' }}>Informasi Murid</h2>
             </div>
             <div style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '1rem', alignItems: 'center', fontSize: '0.875rem' }}>
+              <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '1rem', alignItems: 'center', fontSize: '0.875rem' }}>
                 <div style={{ fontWeight: 600, color: '#64748b' }} className="print-text">Nama Murid</div>
                 <div style={{ fontWeight: 500, color: '#0f172a' }} className="print-text">: {profile?.nama_siswa || name || 'Andi Saputra'}</div>
                 

@@ -52,6 +52,7 @@ class User extends Authenticatable
         return [
             'password' => 'hashed',
             'status_aktif' => 'boolean',
+            'must_change_password' => 'boolean',
             'last_login_at' => 'datetime',
         ];
     }
@@ -109,11 +110,8 @@ class User extends Authenticatable
 
     public function isAkunAktif(): bool
     {
-        if ($this->status_akun !== null) {
-            return $this->status_akun === 'aktif';
-        }
-
-        return (bool) $this->status_aktif;
+        return (bool) $this->status_aktif
+            && ($this->status_akun === null || $this->status_akun === 'aktif');
     }
 
     /** Apakah user sudah punya baris pendaftaran PPDB (bukan sekadar akun login). */

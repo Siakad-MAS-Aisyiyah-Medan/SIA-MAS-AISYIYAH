@@ -1,141 +1,63 @@
 # SISTEM INFORMASI AKADEMIK MAS AISYIYAH MEDAN
 
-Dokumentasi ini ditujukan untuk memandu pengembang (developer), penguji, atau akademisi yang ingin memahami, menjalankan, dan memodifikasi Sistem Informasi Akademik (SIAKAD) MAS Aisyiyah Medan. 
+Sistem akademik sekolah dengan Laravel REST API dan React. Modul: pengguna, guru, murid/alumni, kelas, mata pelajaran, nilai fleksibel, absensi, pengumuman, profil sekolah, tahun ajaran, dan PPDB.
 
-Proyek ini adalah sistem komprehensif yang dirancang untuk mengotomatisasi pengelolaaan data akademik sekolah, mencakup Penerimaan Peserta Didik Baru (PPDB), manajemen kelas, jadwal pelajaran, penilaian, hingga rekapitulasi absensi.
+## Struktur proyek
 
----
+- backend/app/Http/Controllers: validasi permintaan dan respons API.
+- backend/app/Services: aturan bisnis, transaksi, penilaian, PPDB, dan penempatan murid.
+- backend/app/Models dan Http/Resources: relasi database dan bentuk respons.
+- backend/app/Http/Middleware: autentikasi, status akun, izin, dan validasi pagination.
+- backend/routes/api: endpoint dipisah berdasarkan modul/peran.
+- backend/database/migrations: riwayat skema yang dipakai untuk instalasi dan pembaruan.
+- backend/database/seeders: inisialisasi hak akses, tanpa akun demo.
+- backend/storage/app/private: dokumen pribadi PPDB.
+- backend/storage/app/public: foto sekolah/profil, gambar pengumuman, dan brosur.
+- frontend/src/roles: halaman menurut peran pengguna.
+- frontend/src/shared: komponen, layanan API, hooks, dan fungsi bersama.
+- frontend/src/config dan routes: navigasi, izin, dan pemetaan halaman.
+- frontend/dist: hasil build untuk dipasang pada web server.
+- docs: panduan operasional serta catatan audit.
 
-## Informasi Proyek Akademik (Skripsi)
+## Menjalankan secara lokal
 
-Proyek ini dikembangkan sebagai bagian dari Tugas Akhir (Skripsi) pada Program Studi S-1 Teknik Informatika, Fakultas Informatika, Universitas Mikroskil (Medan, 2026).
+Syarat: PHP 8.2 atau lebih baru, Composer, Node.js 22.12 atau lebih baru, npm, dan MySQL/MariaDB. PHP memerlukan PDO MySQL, mbstring, XML, fileinfo, ZIP, GD, intl, dan bcmath. SQLite hanya diperlukan bila melakukan pemeriksaan terisolasi.
 
-Tim Pengembang:
-1. Chairul Fitra Ramadhan (NIM: 221112302)
-2. Rehuel Mirror Pertiwi Br. Saragih (NIM: 221111489)
-3. Maudi Natalsyah Br Simatupang (NIM: 221112432)
+Backend, dari folder backend:
 
----
+~~~powershell
+composer install --no-dev --optimize-autoloader
+Copy-Item .env.example .env
+~~~
 
-## Arsitektur Sistem
+Sesuaikan koneksi database pada .env dan buat database kosong. Jangan menimpa .env yang sudah berisi konfigurasi sekolah. Kemudian:
 
-Sistem ini mengadopsi arsitektur Decoupled (pemisahan sistem penuh antara antarmuka pengguna dan logika server). Pemisahan ini membagi proyek menjadi dua aplikasi utama yang berjalan secara mandiri:
-
-1. Frontend (React.js + Vite)
-   Bertanggung jawab sepenuhnya atas antarmuka pengguna (UI) dan interaksi klien (Single Page Application). Berjalan pada sisi klien dan mengkonsumsi data dari Backend melalui HTTP Request.
-   
-2. Backend (Laravel REST API)
-   Bertanggung jawab atas manipulasi database, autentikasi, otorisasi, dan validasi logika bisnis. Backend ini hanya menerima permintaan dan mengembalikan data dalam format JSON. Backend tidak memproduksi halaman HTML (tanpa Blade).
-
-Sistem basis data yang digunakan adalah MySQL atau MariaDB.
-
----
-
-## Fitur dan Hak Akses (Role-Based Access Control)
-
-Setiap entitas dalam sistem dibatasi oleh hak akses spesifik (Role) untuk menjaga keamanan data:
-
-- Administrator: Akses tak terbatas. Bertugas mengelola data master (Tahun Ajaran, Mata Pelajaran, Kelas, Akun Pengguna, dan Konfigurasi PPDB).
-- Kepala Sekolah: Akses pengawasan (eksekutif). Bertugas melihat laporan statistik akademik, memantau absensi, dan memantau kinerja guru.
-- Guru: Akses operasional harian. Bertugas mengelola data nilai murid, memasukkan absensi murid harian, dan melihat jadwal mengajar pribadi.
-- Siswa: Akses personal. Bertugas melihat daftar kehadiran pribadi, mencetak transkrip nilai, dan membaca papan pengumuman sekolah.
-- Calon Siswa: Akses pendaftaran. Bertugas membuat akun pendaftaran sementara, mengisi formulir PPDB, dan mengunggah berkas persyaratan.
-
----
-
-## Struktur Direktori Utama
-
-Repositori ini memuat kedua bagian aplikasi dalam dua folder besar. Memahami pembagian ini akan mempercepat proses navigasi Anda.
-
-```text
-siakad-full/
-├── backend/               Pusat pengolahan data (REST API).
-│   ├── app/
-│   │   ├── Http/Controllers/  File pengendali rute. Menangani request dan mengembalikan response JSON.
-│   │   ├── Http/Requests/     Menyimpan aturan validasi input dari pengguna.
-│   │   └── Models/            Model Eloquent untuk interaksi dengan database MySQL dan mengatur relasi.
-│   ├── database/
-│   │   ├── migrations/        Cetak biru (blueprint) tabel database.
-│   │   └── seeders/           Penyedia data master awal (Role, Permission, Akun Default).
-│   └── routes/api.php         File utama pendaftaran seluruh endpoint REST API.
-│
-└── frontend/              Pusat antarmuka visual (React UI).
-    └── src/
-        ├── config/            Pengaturan dasar, seperti URL Backend (api.config.js) dan konfigurasi navigasi.
-        ├── roles/             Halaman-halaman UI yang dipisah per hak akses (admin, guru, kepsek, murid, calon-murid).
-        └── shared/            Komponen UI dan fungsi universal yang dipakai secara silang.
-            ├── components/    Komponen UI modular (Tabel, Header, Input).
-            └── akademik/      Logika pemanggilan API (fetcher/services) khusus entitas akademik.
-```
-
----
-
-## Panduan Instalasi dan Konfigurasi Lokal
-
-Untuk menjalankan sistem ini pada komputer lokal Anda, pastikan telah terpasang PHP (>= 8.1), Composer, Node.js (>= 18), npm, dan server MySQL.
-
-### 1. Persiapan Database MySQL
-Buatlah sebuah database kosong di MySQL Anda (misalnya dengan nama `siakad`).
-
-### 2. Instalasi Backend (Laravel)
-Buka terminal dan arahkan ke dalam folder `backend/`:
-
-```bash
-cd backend
-composer install
-copy .env.example .env
-```
-Buka file `.env` menggunakan teks editor, lalu cari konfigurasi database. Sesuaikan `DB_DATABASE`, `DB_USERNAME`, dan `DB_PASSWORD` dengan konfigurasi MySQL Anda. Setelah itu jalankan perintah berikut:
-
-```bash
+~~~powershell
 php artisan key:generate
 php artisan migrate --seed
+php artisan storage:link
+php artisan siakad:create-admin admin --name="Administrator Sekolah"
 php artisan serve --host=127.0.0.1 --port=8000
-```
-Perintah di atas akan membangun struktur tabel, mengisi master data, dan menghidupkan server API pada `http://127.0.0.1:8000`. Biarkan terminal ini tetap menyala.
+~~~
 
-### 3. Instalasi Frontend (React)
-Buka terminal baru (jangan menutup terminal backend) dan arahkan ke dalam folder `frontend/`:
+Pembuatan admin meminta password secara tersembunyi; tidak ada password bawaan. Jangan menjalankan key:generate ulang pada instalasi yang sudah dipakai.
 
-```bash
-cd frontend
-npm install
-copy .env.example .env
-```
-Pastikan isi dari file `.env` di dalam folder frontend ini memiliki variabel `VITE_API_URL=http://127.0.0.1:8000/api` agar bisa berkomunikasi dengan backend. Kemudian jalankan:
+Frontend, dari folder frontend:
 
-```bash
+~~~powershell
+npm ci
+Copy-Item .env.example .env
 npm run dev
-```
-Setelah proses selesai, buka browser web Anda dan ketikkan alamat `http://localhost:5173` untuk melihat sistem beroperasi.
+~~~
 
----
+Gunakan VITE_API_BASE_URL=http://127.0.0.1:8000/api, lalu buka http://localhost:5173. Frontend dan API berjalan sebagai dua proses terpisah.
 
-## Standar Pengujian Kode (Linting & Testing)
+## Pemakaian dan pemasangan
 
-Sistem ini mematuhi standar penulisan kode modern. Sebelum melakukan pengiriman perubahan kode, jalankan pengujian berikut:
+Baca [panduan operasional](docs/OPERASIONAL.md) untuk urutan pengisian data, pembaruan server, backup, dan konfigurasi produksi. Lihat [hasil audit](docs/HASIL_AUDIT.md) untuk perbaikan dan batas verifikasi.
 
-Backend:
-```bash
-cd backend
-php artisan test
-vendor/bin/pint --test
-```
+Perintah pemeriksaan sumber: npm run check di frontend; composer validate --strict dan composer audit di backend. Berkas pengujian sementara sudah dibersihkan sesuai permintaan; ringkasan hasilnya disimpan di catatan audit.
 
-Frontend:
-```bash
-cd frontend
-npm run lint
-npm run build
-```
+## Pengembang awal
 
----
-
-## Panduan Pencarian Kendala (Troubleshooting Flow)
-
-Jika Anda ingin memperbaiki bug atau memodifikasi alur kerja, gunakan rute pelacakan (tracing) berikut secara runut:
-
-1. Frontend UI: Cari halaman yang bermasalah pada direktori `frontend/src/roles/`. Temukan nama komponen berektensi `.jsx` yang sedang di-render.
-2. Frontend API Service: Pada komponen tersebut, cari fungsi yang melakukan pertukaran data. Fungsi ini biasanya memanggil endpoint API dari `frontend/src/shared/`.
-3. Backend Route: Salin path API (misal `/api/guru`) dan cari di file `backend/routes/api.php`. Di sana Anda akan menemukan nama Controller yang bertugas.
-4. Backend Controller: Buka Controller terkait di `backend/app/Http/Controllers/`. Periksa alur validasi dan bagaimana ia memanggil Model atau Service untuk menyelesaikan proses bisnis database.
+Proyek Tugas Akhir Teknik Informatika Universitas Mikroskil, Medan, 2026: Chairul Fitra Ramadhan, Rehuel Mirror Pertiwi Br. Saragih, dan Maudi Natalsyah Br Simatupang.

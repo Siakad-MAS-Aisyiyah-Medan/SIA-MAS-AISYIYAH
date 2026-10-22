@@ -2,7 +2,10 @@ import Swal from 'sweetalert2';
 
 function buildMessageHtml(text) {
   if (!text) return '';
-  return `<p class="siakad-alert-message">"${text}"</p>`;
+  const safeText = String(text).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+  return `<p class="siakad-alert-message">"${safeText}"</p>`;
 }
 
 function getBaseOptions() {

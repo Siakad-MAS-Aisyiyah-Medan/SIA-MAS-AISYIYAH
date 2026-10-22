@@ -1,16 +1,12 @@
 import apiClient from '@/shared/services/apiClient';
-import { unwrapPaginated } from '@/shared/services/apiHelpers';
+import { fetchAllPages } from '@/shared/services/apiHelpers';
 
-export async function fetchMapelList() {
-  const response = await apiClient.get('/mapel');
-  const { items } = unwrapPaginated(response);
-  return items;
+export async function fetchMapelList(params = {}) {
+  return fetchAllPages(apiClient, '/mapel', params);
 }
 
-export async function fetchGuruList() {
-  const response = await apiClient.get('/guru');
-  const { items } = unwrapPaginated(response);
-  return items;
+export async function fetchGuruList(params = {}) {
+  return fetchAllPages(apiClient, '/guru', params);
 }
 
 export async function createMapel(payload) {

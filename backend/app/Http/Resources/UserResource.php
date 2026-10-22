@@ -16,6 +16,7 @@ class UserResource extends JsonResource
             'email' => $this->displayEmail(),
             'role' => $this->role,
             'status_aktif' => (bool) $this->status_aktif,
+            'must_change_password' => (bool) $this->must_change_password,
             'status_akun' => $this->status_akun ?? (($this->status_aktif ?? true) ? 'aktif' : 'nonaktif'),
             'last_login_at' => $this->last_login_at,
             'has_ppdb_registration' => $this->role === 'calon_siswa' ? $this->hasPpdbRegistration() : null,

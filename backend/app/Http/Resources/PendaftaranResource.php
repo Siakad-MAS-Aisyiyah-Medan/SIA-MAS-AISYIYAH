@@ -2,9 +2,9 @@
 
 namespace App\Http\Resources;
 
+use App\Services\PpdbBerkasService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class PendaftaranResource extends JsonResource
 {
@@ -90,7 +90,8 @@ class PendaftaranResource extends JsonResource
         $out = [];
         foreach ($keys as $key) {
             $path = $this->{$key};
-            $out[$key] = $path ? Storage::disk('public')->url($path) : null;
+            $jenis = array_search($key, PpdbBerkasService::FILE_COLUMNS, true);
+            $out[$key] = $path ? PpdbBerkasService::documentUrl($this->id_pendaftaran, $jenis) : null;
         }
 
         return $out;

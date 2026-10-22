@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Http\Resources\UserResource;
+use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\Account\AccountRegistrationService;
 use Illuminate\Support\Facades\Hash;
@@ -70,11 +71,14 @@ class AuthService
             ->first();
 
         if (! $user) {
-            return ['error' => 'Akun tidak ditemukan', 'code' => 401];
+            return ['error' => 'Identitas login atau password salah.', 'code' => 401];
         }
 
         if (! Hash::check($password, $user->password)) {
-            return ['error' => 'Password salah', 'code' => 401];
+            return ['error' => 'Identitas login atau password salah.', 'code' => 401];
+        }
+        if (in_array($password, ['password', 'admin123', '12345678'], true)) {
+            $user->forceFill(['must_change_password' => true])->save();
         }
 
         $statusError = $this->accountStatusError($user);
@@ -83,6 +87,14 @@ class AuthService
         }
 
         $user->forceFill(['last_login_at' => now()])->save();
+        AuditLog::create([
+            'id_user' => $user->id_user,
+            'action' => 'auth.login',
+            'subject_type' => class_basename($user),
+            'subject_id' => $user->id_user,
+            'ip_address' => request()->ip(),
+            'user_agent' => substr((string) request()->userAgent(), 0, 500),
+        ]);
 
         $user->loadProfileRelations();
         $profile = $user->resolveProfile();
@@ -133,10 +145,6 @@ class AuthService
 
     private function loginMatchPriority(User $user, string $login, array $loginCandidates, ?string $role): int
     {
-        if ($role !== null) {
-            return 0;
-        }
-
         $matches = fn ($value): bool => $value !== null && in_array((string) $value, $loginCandidates, true);
 
         return match (true) {
@@ -156,6 +164,9 @@ class AuthService
      */
     private function accountStatusError(User $user): ?array
     {
+        if (! $user->isAkunAktif()) {
+            return ['error' => 'Akun dinonaktifkan', 'code' => 403];
+        }
         $status = $user->status_akun ?? (($user->status_aktif ?? true) ? 'aktif' : 'nonaktif');
 
         return match ($status) {

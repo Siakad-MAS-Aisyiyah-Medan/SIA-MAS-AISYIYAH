@@ -28,12 +28,6 @@ class AuditLogService
             'meta' => $meta ?: null,
         ]);
 
-        $count = AuditLog::count();
-        if ($count > 1000) {
-            $excess = $count - 1000;
-            $idsToDelete = AuditLog::orderBy('id', 'asc')->limit($excess)->pluck('id');
-            AuditLog::whereIn('id', $idsToDelete)->delete();
-        }
     }
 
     public function list(?string $action = null, ?string $search = null, int $perPage = 1000)

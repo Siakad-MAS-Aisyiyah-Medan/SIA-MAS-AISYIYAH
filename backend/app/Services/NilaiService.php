@@ -72,6 +72,14 @@ class NilaiService
         $allowedComponents = ['nilai_tugas', 'nilai_uts', 'nilai_uas', 'nilai_praktik', 'nilai_sikap'];
 
         $this->assertGuruCanInput($guruId, (int) $meta['id_mapel']);
+        $mapel = Mapel::findOrFail($meta['id_mapel']);
+        if (! $mapel->kelas()->where('kelas.id_kelas', $meta['id_kelas'])->exists()) {
+            throw new InvalidArgumentException('Mata pelajaran tidak ditugaskan pada kelas ini.');
+        }
+        $studentIds = collect($items)->pluck('id_user_siswa')->unique();
+        if (Siswa::aktif()->where('id_kelas', $meta['id_kelas'])->whereIn('id_user', $studentIds)->count() !== $studentIds->count()) {
+            throw new InvalidArgumentException('Terdapat murid yang bukan anggota aktif kelas ini.');
+        }
 
         if ($singleComponent !== null && ! in_array($singleComponent, $allowedComponents, true)) {
             throw new InvalidArgumentException('Komponen nilai tidak valid.');

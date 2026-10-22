@@ -1,3 +1,4 @@
+import { currentAcademicYear } from '@/shared/utils/academicPeriod';
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, FileSpreadsheet, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 
@@ -50,7 +51,7 @@ function buildContextId(meta) {
 
 function getActiveAcademicYear(tahunAjaranList) {
   const active = (tahunAjaranList || []).find((item) => String(item.status || '').toLowerCase() === 'aktif');
-  return active?.tahun_ajaran || tahunAjaranList?.[0]?.tahun_ajaran || '2025/2026';
+  return active?.tahun_ajaran || tahunAjaranList?.[0]?.tahun_ajaran || currentAcademicYear();
 }
 
 function NilaiContextForm({
@@ -72,7 +73,7 @@ function NilaiContextForm({
 
       <div className="form-panel glass" style={{ padding: '1.75rem' }}>
         <div style={{ display: 'grid', gap: '1.5rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
+          <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
             <label className="form-label">Tahun Ajaran *</label>
             <select name="tahun_ajaran" value={form.tahun_ajaran} onChange={onChange} className="form-control" required>
               <option value="">Pilih Tahun Ajaran</option>
@@ -84,7 +85,7 @@ function NilaiContextForm({
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
+          <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
             <label className="form-label">Semester *</label>
             <select name="semester" value={form.semester} onChange={onChange} className="form-control" required>
               <option value="">Pilih Semester</option>
@@ -96,7 +97,7 @@ function NilaiContextForm({
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
+          <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
             <label className="form-label">Kelas *</label>
             <select name="id_kelas" value={form.id_kelas} onChange={onChange} className="form-control" required>
               <option value="">Pilih Kelas</option>
@@ -108,7 +109,7 @@ function NilaiContextForm({
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
+          <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', alignItems: 'center', gap: '1.25rem' }}>
             <label className="form-label">Mata Pelajaran *</label>
             <select name="id_mapel" value={form.id_mapel} onChange={onChange} className="form-control" required>
               <option value="">Pilih Mata Pelajaran</option>

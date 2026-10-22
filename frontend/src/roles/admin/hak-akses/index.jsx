@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Eye,
@@ -415,9 +416,11 @@ export default function HakAksesPage() {
                       { value: 'admin', label: 'Administrator' },
                       { value: 'kepsek', label: 'Kepala Sekolah' },
                       { value: 'guru', label: 'Guru' },
-                      { value: 'siswa', label: 'Murid' }
-                    ]}
+                      { value: 'siswa', label: 'Murid' },
+                      { value: 'calon_siswa', label: 'Calon Murid' },
+                    ].filter(option => view === 'edit' || !['guru', 'siswa'].includes(option.value))}
                   />
+                  {view === 'add' && <p style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>Tambahkan akun guru melalui <Link to="/admin/guru">Data Guru</Link> dan akun murid melalui <Link to="/admin/murid">Data Murid</Link> untuk melengkapi biodatanya.</p>}
                 </div>
                 <div>
                   <FormLabel>No. Handphone</FormLabel>

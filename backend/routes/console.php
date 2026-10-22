@@ -1,14 +1,75 @@
 <?php
 
 use App\Models\Admin;
+use App\Models\PendaftaranDokumen;
 use App\Models\User;
-use Illuminate\Foundation\Inspiring;
+use App\Services\PpdbBerkasService;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+Artisan::command('siakad:create-admin {username} {--name=Administrator}', function () {
+    $username = trim($this->argument('username'));
+    if ($username === '' || User::where('username', $username)->exists()) {
+        $this->error('Username kosong atau sudah digunakan.');
+
+        return self::FAILURE;
+    }
+    $password = $this->secret('Password administrator (minimal 12 karakter)');
+    if (strlen((string) $password) < 12 || $password !== $this->secret('Ulangi password')) {
+        $this->error('Password terlalu pendek atau konfirmasi tidak sama.');
+
+        return self::FAILURE;
+    }
+    DB::transaction(function () use ($username, $password) {
+        $user = User::create(['username' => $username, 'name' => $this->option('name'), 'password' => $password, 'role' => 'admin', 'status_aktif' => true, 'status_akun' => 'aktif']);
+        $user->admin()->create(['nip' => 'ADMIN-'.$user->id_user, 'nama_admin' => $user->name, 'no_hp' => '-']);
+    });
+    $this->info('Administrator berhasil dibuat.');
+
+    return self::SUCCESS;
+})->purpose('Buat administrator tanpa akun atau password bawaan');
+
+Artisan::command('ppdb:secure-files', function () {
+    $private = Storage::disk('local');
+    $public = Storage::disk('public');
+    $moved = 0;
+    $missing = 0;
+    foreach (PendaftaranDokumen::cursor() as $document) {
+        foreach (PpdbBerkasService::FILE_COLUMNS as $column) {
+            $path = $document->{$column};
+            if (! $path) {
+                continue;
+            }
+            if ($public->exists($path)) {
+                if ($private->exists($path) && hash_file('sha256', $public->path($path)) !== hash_file('sha256', $private->path($path))) {
+                    throw new RuntimeException('Salinan publik dan privat berbeda. Periksa backup sebelum memindahkan berkas.');
+                }
+                $stream = $public->readStream($path);
+                try {
+                    if (! $private->put($path, $stream)) {
+                        throw new RuntimeException('Gagal menyalin berkas PPDB.');
+                    }
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+                if (hash_file('sha256', $public->path($path)) !== hash_file('sha256', $private->path($path))) {
+                    throw new RuntimeException('Verifikasi salinan berkas PPDB gagal.');
+                }
+                $public->delete($path);
+                $moved++;
+            } elseif (! $private->exists($path)) {
+                $missing++;
+            }
+        }
+    }
+    $this->info("Berkas dipindahkan ke penyimpanan privat: {$moved}; referensi berkas hilang: {$missing}.");
+
+    return $missing ? self::FAILURE : self::SUCCESS;
+})->purpose('Amankan unggahan PPDB lama dengan salinan dan verifikasi hash sebelum menghapus salinan publik');
 
 Artisan::command('siakad:restore-admin {login=admin} {--password=} {--force-password}', function () {
     $login = trim((string) $this->argument('login'));

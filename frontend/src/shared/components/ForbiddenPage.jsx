@@ -12,7 +12,7 @@ export default function ForbiddenPage({ message: messageProp }) {
     location.state?.message ||
     params.get('message') ||
     'Anda tidak memiliki izin untuk mengakses halaman ini.';
-  const message = raw.includes('%') ? decodeURIComponent(raw) : raw;
+  const message = raw;
   const user = getStoredUser();
   const profile = getStoredProfile();
   const name = getDisplayName(profile, user?.role, user?.username);

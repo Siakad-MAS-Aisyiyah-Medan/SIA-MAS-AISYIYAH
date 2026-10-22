@@ -1,3 +1,4 @@
+import { generateAccountPassword } from '@/shared/utils/accountPassword';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   createMurid,
@@ -174,7 +175,7 @@ export function useMurid() {
   };
 
   const openAdd = () => {
-    setFormData(initialForm);
+    setFormData({ ...initialForm, password: generateAccountPassword() });
     setEditId(null);
     setView('add');
   };
@@ -265,7 +266,7 @@ export function useMurid() {
       if (view === 'add') {
         const fallbackId = 'siswa_' + Date.now().toString().slice(-6);
         const generatedUsername = formData.username || formData.nisn || formData.no_hp || fallbackId;
-        const defaultPassword = 'admin123';
+        const defaultPassword = formData.password || generateAccountPassword();
         
         const payload = {
           ...formData,

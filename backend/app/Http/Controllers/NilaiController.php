@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Nilai;
 use App\Services\FlexibleNilaiService;
 use App\Services\NilaiService;
 use App\Utils\ApiResponse;
@@ -47,7 +46,7 @@ class NilaiController extends Controller
                 'komponen' => 'required|array|min:1',
                 'komponen.*.id_komponen' => 'nullable|integer|exists:komponen_penilaian,id_komponen',
                 'komponen.*.nama_komponen' => 'required|string|max:60',
-                'komponen.*.bobot' => 'required|numeric|gt:0|max:100',
+                'komponen.*.bobot' => 'required|numeric|decimal:0,2|gt:0|max:100',
             ]);
         } catch (ValidationException $e) {
             return ApiResponse::error('Validasi gagal.', 422, $e->errors());
@@ -188,39 +187,14 @@ class NilaiController extends Controller
 
     public function kepsekIndex(Request $request)
     {
-        try {
-            $filters = array_merge(
-                $request->only(['id_kelas', 'id_mapel', 'semester', 'tahun_ajaran', 'validated_by_wali']),
-                ['per_page' => 1, 'page' => 1]
-            );
-            if (empty($filters['tahun_ajaran'])) {
-                $filters['tahun_ajaran'] = '2025/2026';
-            }
-            if (empty($filters['semester'])) {
-                $filters['semester'] = 'Ganjil';
-            }
+        $filters = $request->validate([
+            'id_kelas' => 'nullable|integer|exists:kelas,id_kelas',
+            'id_mapel' => 'nullable|integer|exists:mata_pelajaran,id_mapel',
+            'semester' => 'nullable|in:Ganjil,Genap',
+            'tahun_ajaran' => 'nullable|string|max:20',
+        ]);
 
-            $summaryQuery = Nilai::query();
-            $perKelas = (clone $summaryQuery)
-                ->selectRaw('id_kelas, COUNT(*) as total')
-                ->groupBy('id_kelas')
-                ->get()
-                ->map(fn ($row) => [
-                    'id_kelas' => $row->id_kelas,
-                    'total' => (int) $row->total,
-                ]);
-
-            return ApiResponse::success([
-                'summary' => [
-                    'total_nilai' => $summaryQuery->count(),
-                    'per_kelas' => $perKelas,
-                ],
-            ], 'Berhasil mengambil rekap nilai');
-        } catch (\Throwable $e) {
-            report($e);
-
-            return ApiResponse::error('Gagal mengambil data', 500);
-        }
+        return ApiResponse::success(['summary' => $this->nilaiService->laporan($filters)], 'Berhasil mengambil rekap nilai');
     }
 
     public function adminIndex(Request $request)

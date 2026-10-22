@@ -97,8 +97,8 @@ export default function DashboardCalonMurid() {
 
   const registrationPeriod = useMemo(() => {
     return {
-      start: formatDateLabel(ppdbInfo?.tanggal_buka || ppdbInfo?.periode_mulai || '2026-06-01'),
-      end: formatDateLabel(ppdbInfo?.tanggal_tutup || ppdbInfo?.periode_selesai || '2026-06-30'),
+      start: formatDateLabel(ppdbInfo?.tanggal_buka || ppdbInfo?.periode_mulai),
+      end: formatDateLabel(ppdbInfo?.tanggal_tutup || ppdbInfo?.periode_selesai),
     };
   }, [ppdbInfo]);
 
@@ -165,6 +165,7 @@ export default function DashboardCalonMurid() {
             </h2>
             <div style={{ marginTop: '0.85rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', fontSize: '0.85rem', color: '#475569' }}>
               <CalendarDays style={{ width: '18px', height: '18px', color: '#059669' }} />
+              {registrationPeriod.start === '-' && registrationPeriod.end === '-' ? <span>Lihat jadwal pendaftaran pada brosur atau hubungi sekolah.</span> : <>
               <span>Pendaftaran dibuka dari</span>
               <span style={{ borderRadius: '8px', border: '1px solid #d1fae5', background: '#ecfdf5', padding: '0.3rem 0.75rem', fontWeight: 600, color: '#064e3b', fontSize: '0.8rem' }}>
                 {registrationPeriod.start}
@@ -173,6 +174,7 @@ export default function DashboardCalonMurid() {
               <span style={{ borderRadius: '8px', border: '1px solid #d1fae5', background: '#ecfdf5', padding: '0.3rem 0.75rem', fontWeight: 600, color: '#064e3b', fontSize: '0.8rem' }}>
                 {registrationPeriod.end}
               </span>
+              </>}
             </div>
           </div>
 

@@ -4,6 +4,7 @@ import {
   getStoredUser,
   hasPermission,
   hasAnyPermission,
+  getAccountSettingsPath,
 } from '@/shared/services/auth.service';
 import ForbiddenPage from '@/shared/components/ForbiddenPage';
 
@@ -35,6 +36,11 @@ export function PermissionRoute({ children, permission, permissions, loginPath =
   }
 
   const required = permissions ?? (permission ? [permission] : []);
+  const user = getStoredUser();
+  const settingsPath = getAccountSettingsPath(user?.role);
+  if (user?.must_change_password && location.pathname !== settingsPath) {
+    return <Navigate to={settingsPath} replace />;
+  }
 
   if (required.length > 0 && !hasAnyPermission(required)) {
     return (

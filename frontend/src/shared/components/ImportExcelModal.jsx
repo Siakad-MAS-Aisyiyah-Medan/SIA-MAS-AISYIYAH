@@ -153,7 +153,7 @@ export default function ImportExcelModal({
               <UploadCloud size={44} style={{ color: 'var(--color-primary)', margin: '0 auto 0.75rem' }} />
               <input 
                 type="file" 
-                accept=".xlsx,.csv,.xls" 
+                accept=".xlsx,.csv"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
                 id="file-upload"
@@ -171,7 +171,7 @@ export default function ImportExcelModal({
               >
                 {file ? file.name : 'Klik di sini untuk memilih file'}
               </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0' }}>Maksimal ukuran berkas: 2MB</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0' }}>Maksimal 2MB. Isi kolom password untuk setiap akun (minimal 8 karakter). Format NIS/NISN sebagai teks.</p>
             </div>
           </div>
 

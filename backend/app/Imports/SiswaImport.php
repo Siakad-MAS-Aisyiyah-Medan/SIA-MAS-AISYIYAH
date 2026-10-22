@@ -4,6 +4,7 @@ namespace App\Imports;
 
 use App\Models\Siswa;
 use App\Models\User;
+use App\Services\StudentPlacementService;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -37,7 +38,14 @@ class SiswaImport
                 }
 
                 $nis = $row['nis'];
-                $nisn = $row['nisn'] ?? '-';
+                $nisn = trim((string) ($row['nisn'] ?? ''));
+                if (! preg_match('/^\d{10}$/', $nisn)) {
+                    throw new Exception('Baris '.$rowIndex.': NISN wajib berisi 10 digit. Format kolom NIS/NISN sebagai teks agar angka nol awal tidak hilang.');
+                }
+                $password = (string) ($row['password'] ?? '');
+                if (strlen($password) < 8) {
+                    throw new Exception('Baris '.$rowIndex.': Kolom password wajib diisi minimal 8 karakter.');
+                }
                 $noHp = $this->firstFilledValue($row, [
                     'no_hp',
                     'no_hp_wali',
@@ -82,18 +90,19 @@ class SiswaImport
                 }
 
                 // Buat User
+                app(StudentPlacementService::class)->assertAvailable((int) $this->idKelas);
                 $user = User::create([
                     'name' => $row['nama'],
                     'username' => $nis,
                     'email' => null,
-                    'password' => Hash::make('admin123'),
+                    'password' => Hash::make($password),
                     'role' => 'siswa',
                     'status_aktif' => true,
                     'status_akun' => 'aktif',
                 ]);
 
                 // Format Tanggal Lahir (FastExcel / OpenSpout biasanya me-return string Y-m-d atau DateTime)
-                $tglLahir = '2000-01-01';
+                $tglLahir = null;
                 if (! empty($row['tgl_lahir'])) {
                     if ($row['tgl_lahir'] instanceof \DateTimeInterface) {
                         $tglLahir = $row['tgl_lahir']->format('Y-m-d');
@@ -105,6 +114,12 @@ class SiswaImport
                         }
                     }
                 }
+                if (! $tglLahir) {
+                    throw new Exception('Baris '.$rowIndex.': Tanggal lahir wajib diisi dengan tanggal yang valid.');
+                }
+                if (! in_array(strtoupper(trim((string) ($row['lp'] ?? ''))), ['L', 'P'], true)) {
+                    throw new Exception('Baris '.$rowIndex.': Kolom lp wajib L atau P.');
+                }
 
                 // Buat Siswa
                 Siswa::create([
@@ -115,7 +130,7 @@ class SiswaImport
                     'nama_siswa' => $row['nama'],
                     'tempat_lahir' => $row['tempat_lahir'] ?? '-',
                     'tgl_lahir' => $tglLahir,
-                    'jenis_kelamin' => isset($row['lp']) && strtoupper($row['lp']) == 'P' ? 'P' : 'L',
+                    'jenis_kelamin' => strtoupper(trim((string) $row['lp'])) === 'P' ? 'P' : 'L',
                     'agama' => $row['agama'] ?? 'Islam',
                     'alamat' => $row['alamat'] ?? '-',
                     'nama_wali' => $row['nama_wali'] ?? '-',
@@ -127,7 +142,7 @@ class SiswaImport
                 $rowIndex++;
             }
             DB::commit();
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;
         }

@@ -9,10 +9,10 @@ import { confirmAction, showLoadingAlert, closeAlert } from '@/shared/hooks/useC
 
 export default function MainLayout({ children, role, name }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
   const navigate = useNavigate();
   const location = useLocation();
   const menuItems = getMenuItems();
-  const isDashboard = location.pathname.includes('/dashboard');
 
   const handleLogout = async () => {
     const confirmed = await confirmAction({
@@ -35,6 +35,27 @@ export default function MainLayout({ children, role, name }) {
 
   const roleLabel = ROLE_LABELS[role] || role?.replace('_', ' ').toUpperCase();
 
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 768px)');
+    const update = (event) => setIsMobile(event.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsMobileMenuOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isMobileMenuOpen]);
+
   const isMenuItemActive = (itemPath) => {
     const pathname = location.pathname;
     if (pathname === itemPath) return true;
@@ -56,7 +77,7 @@ export default function MainLayout({ children, role, name }) {
         onClick={() => setIsMobileMenuOpen(false)}
       ></div>
 
-      <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
+      <aside id="main-sidebar" inert={isMobile && !isMobileMenuOpen} className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <div className="sidebar-brand__logo">
             <AppLogo size={54} variant="sidebar" />
@@ -87,6 +108,10 @@ export default function MainLayout({ children, role, name }) {
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <button 
               className="mobile-menu-btn" 
+              type="button"
+              aria-label={isMobileMenuOpen ? 'Tutup menu navigasi' : 'Buka menu navigasi'}
+              aria-controls="main-sidebar"
+              aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
               {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -103,7 +128,7 @@ export default function MainLayout({ children, role, name }) {
 
           <div className="content-header__right" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div id="global-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}></div>
-            {isDashboard && (
+            {(
               <>
                 <MotionUserInfo name={name} roleLabel={roleLabel} role={role} onLogout={handleLogout} />
               </>
@@ -153,6 +178,17 @@ function MotionUserInfo({ name, roleLabel, role, onLogout }) {
     <div 
       className="user-info" 
       ref={dropdownRef} 
+      role="button"
+      tabIndex={0}
+      aria-label="Menu akun"
+      aria-expanded={isOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          setIsOpen(!isOpen);
+        } else if (event.key === 'Escape') setIsOpen(false);
+      }}
       onClick={() => setIsOpen(!isOpen)} 
       style={{ cursor: 'pointer', position: 'relative', padding: '0.25rem', borderRadius: '12px', transition: 'background 0.2s' }}
       onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-background)'}

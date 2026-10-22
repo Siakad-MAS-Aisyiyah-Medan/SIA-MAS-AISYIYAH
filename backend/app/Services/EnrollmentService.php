@@ -29,8 +29,9 @@ class EnrollmentService
             }
 
             $this->pendaftaranState->assertCanEnroll($pendaftaran, $user);
+            app(StudentPlacementService::class)->assertAvailable($idKelas);
 
-            $nisn = $user->username;
+            $nisn = $pendaftaran->nisn ?: $user->username;
             $nis = $this->generateUniqueNis();
 
             Siswa::create([
@@ -79,27 +80,8 @@ class EnrollmentService
 
     public function generateUniqueNis(): string
     {
-        $year = date('Y');
-        $maxAttempts = 15;
+        $year = (string) now()->year;
 
-        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
-            $last = Siswa::where('nis', 'like', $year.'%')
-                ->lockForUpdate()
-                ->orderByDesc('nis')
-                ->value('nis');
-
-            $seq = 1;
-            if ($last && str_starts_with($last, $year)) {
-                $seq = (int) substr($last, 4) + 1 + $attempt;
-            }
-
-            $nis = $year.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-
-            if (! Siswa::where('nis', $nis)->exists()) {
-                return $nis;
-            }
-        }
-
-        throw new InvalidArgumentException('Gagal menghasilkan NIS unik. Silakan coba lagi.');
+        return app(SchoolNumberService::class)->next('nis-'.$year, $year, 'siswa', 'nis');
     }
 }

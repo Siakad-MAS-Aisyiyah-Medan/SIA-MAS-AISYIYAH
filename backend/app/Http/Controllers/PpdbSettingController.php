@@ -7,6 +7,7 @@ use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class PpdbSettingController extends Controller
 {
@@ -36,6 +37,7 @@ class PpdbSettingController extends Controller
             'ppdb_promo',
             'ppdb_persyaratan',
             'ppdb_fasilitas',
+            'ppdb_ekstrakurikuler',
 
             'ppdb_alur',
             'ppdb_kontak',
@@ -108,6 +110,7 @@ class PpdbSettingController extends Controller
                 ],
             ],
             'ppdb_persyaratan' => self::OFFICIAL_PPDB_PERSYARATAN,
+            'ppdb_ekstrakurikuler' => [],
             'ppdb_fasilitas' => [
                 ['nama' => 'Ruang Kelas Luas', 'ikon' => 'building'],
                 ['nama' => 'Ruang Perpustakaan', 'ikon' => 'library'],
@@ -151,7 +154,7 @@ class PpdbSettingController extends Controller
             // Decode JSON if it's an array field
             if (in_array($key, [
                 'ppdb_hero_highlights', 'ppdb_gelombang', 'ppdb_promo',
-                'ppdb_persyaratan', 'ppdb_fasilitas',
+                'ppdb_persyaratan', 'ppdb_fasilitas', 'ppdb_ekstrakurikuler',
                 'ppdb_alur', 'ppdb_kontak',
             ])) {
                 $decoded = $val ? json_decode($val, true) : null;
@@ -182,13 +185,34 @@ class PpdbSettingController extends Controller
      */
     public function updateSettings(Request $request)
     {
-        $data = $request->except('ppdb_brosur_file');
+        $request->validate([
+            'ppdb_brosur_file' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+            'ppdb_judul' => 'sometimes|nullable|string|max:255',
+            'ppdb_tahun_ajaran' => ['sometimes', 'nullable', 'regex:/^\d{4}\/\d{4}$/'],
+            'ppdb_deskripsi' => 'sometimes|nullable|string|max:10000',
+            'ppdb_alamat' => 'sometimes|nullable|string|max:1000',
+            'ppdb_brosur' => 'sometimes|nullable|string|max:2000',
+        ]);
 
         $jsonKeys = [
             'ppdb_hero_highlights', 'ppdb_gelombang', 'ppdb_promo',
-            'ppdb_persyaratan', 'ppdb_fasilitas',
+            'ppdb_persyaratan', 'ppdb_fasilitas', 'ppdb_ekstrakurikuler',
             'ppdb_alur', 'ppdb_kontak',
         ];
+
+        $data = $request->only(array_merge($jsonKeys, [
+            'ppdb_judul', 'ppdb_tahun_ajaran', 'ppdb_deskripsi', 'ppdb_alamat', 'ppdb_brosur',
+        ]));
+        foreach ($jsonKeys as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+            $value = is_string($data[$key]) ? json_decode($data[$key], true) : $data[$key];
+            if (! is_array($value)) {
+                throw ValidationException::withMessages([$key => 'Isi harus berupa daftar JSON yang valid.']);
+            }
+            $data[$key] = $value;
+        }
 
         foreach ($data as $key => $value) {
             if (in_array($key, $jsonKeys)) {

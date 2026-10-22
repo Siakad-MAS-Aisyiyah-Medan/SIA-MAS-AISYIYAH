@@ -2,20 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Resources\KelasResource;
 use App\Models\Kelas;
+use App\Services\KelasService;
 use App\Utils\ApiResponse;
-use App\Utils\AuditsAdminActions;
-use App\Utils\SearchInput;
 use App\Utils\WaliKelasUser;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class KelasController extends Controller
 {
+    public function __construct(private KelasService $service) {}
+
     public function index(Request $request)
     {
-        $paginator = $this->list(
+        $paginator = $this->service->list(
             $request->only(['search', 'tingkat', 'jurusan']),
             (int) $request->query('per_page', 15)
         );
@@ -25,7 +25,7 @@ class KelasController extends Controller
 
     public function stats()
     {
-        $stats = $this->getStats();
+        $stats = $this->service->getStats();
 
         return ApiResponse::success($stats, 'Berhasil mengambil statistik kelas');
     }
@@ -44,7 +44,7 @@ class KelasController extends Controller
         ]);
         $validated['status'] = strtolower($validated['status'] ?? 'aktif');
 
-        $kelas = $this->create($validated);
+        $kelas = $this->service->create($validated);
 
         return ApiResponse::success($kelas, 'Kelas berhasil ditambahkan', 201);
     }
@@ -65,7 +65,7 @@ class KelasController extends Controller
             $validated['status'] = strtolower($validated['status'] ?? 'aktif');
         }
 
-        $kelas = $this->processUpdate((int) $id, $validated);
+        $kelas = $this->service->processUpdate((int) $id, $validated);
 
         return ApiResponse::success($kelas, 'Kelas berhasil diperbarui');
     }
@@ -79,76 +79,14 @@ class KelasController extends Controller
                 422
             );
         }
+        if (DB::table('absensi')->where('id_kelas', $id)->exists()
+            || DB::table('skema_penilaian')->where('id_kelas', $id)->exists()
+            || $kelas->jadwal()->exists()) {
+            return ApiResponse::error('Kelas memiliki riwayat akademik dan tidak dapat dihapus. Nonaktifkan kelas untuk menyimpan arsip.', 422);
+        }
 
-        $this->delete((int) $id);
+        $this->service->delete((int) $id);
 
         return ApiResponse::success(null, 'Kelas berhasil dihapus');
-    }
-
-    // --- Inlined from KelasService ---
-
-    use AuditsAdminActions;
-
-    private function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
-    {
-        $query = Kelas::with(['waliKelas.guru'])
-            ->withCount([
-                'jadwal',
-                'siswa as siswa_count' => fn ($q) => $q->aktif(),
-            ]);
-
-        if (! empty($filters['search'])) {
-            $term = SearchInput::escape($filters['search']);
-            $query->where('nama_kelas', 'like', "%{$term}%");
-        }
-
-        if (! empty($filters['tingkat']) && $filters['tingkat'] !== 'Semua') {
-            $query->where('tingkat', $filters['tingkat']);
-        }
-
-        if (! empty($filters['jurusan']) && $filters['jurusan'] !== 'Semua') {
-            $query->where('jurusan', $filters['jurusan']);
-        }
-
-        $paginator = $query->orderBy('nama_kelas')->paginate($perPage);
-        $paginator->getCollection()->transform(
-            fn ($item) => (new KelasResource($item))->resolve()
-        );
-
-        return $paginator;
-    }
-
-    private function getStats(): array
-    {
-        return [
-            'total_kelas' => Kelas::count(),
-            'ipa' => Kelas::where('jurusan', 'IPA')->count(),
-            'ips' => Kelas::where('jurusan', 'IPS')->count(),
-            'belum_ada_wali' => Kelas::whereNull('id_wali_kelas')->count(),
-        ];
-    }
-
-    private function create(array $data): array
-    {
-        $kelas = Kelas::create($data);
-        $this->auditAdmin('kelas.create', $kelas, ['nama_kelas' => $kelas->nama_kelas]);
-
-        return (new KelasResource($kelas->load('waliKelas.guru')))->resolve();
-    }
-
-    private function processUpdate(int $id, array $data): array
-    {
-        $kelas = Kelas::findOrFail($id);
-        $kelas->update($data);
-        $this->auditAdmin('kelas.update', $kelas, ['nama_kelas' => $kelas->nama_kelas]);
-
-        return (new KelasResource($kelas->fresh(['waliKelas.guru'])))->resolve();
-    }
-
-    private function delete(int $id): void
-    {
-        $kelas = Kelas::findOrFail($id);
-        $this->auditAdmin('kelas.delete', $kelas, ['nama_kelas' => $kelas->nama_kelas]);
-        $kelas->delete();
     }
 }

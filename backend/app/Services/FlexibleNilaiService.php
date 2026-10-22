@@ -95,6 +95,10 @@ class FlexibleNilaiService
         if ($components->isEmpty()) {
             throw new InvalidArgumentException('Skema harus memiliki minimal satu komponen nilai.');
         }
+        $componentIds = $components->pluck('id_komponen')->filter()->map(fn ($id) => (int) $id);
+        if ($componentIds->unique()->count() !== $componentIds->count()) {
+            throw new InvalidArgumentException('Komponen nilai yang sama tidak boleh dikirim lebih dari sekali.');
+        }
 
         $normalizedNames = $components
             ->map(fn ($item) => mb_strtolower(trim((string) ($item['nama_komponen'] ?? ''))));
@@ -113,7 +117,7 @@ class FlexibleNilaiService
         return DB::transaction(function () use ($skema, $payload, $components) {
             $existing = $skema->komponen()->get()->keyBy('id_komponen');
             $keptIds = [];
-            $usedCodes = [];
+            $usedCodes = $existing->pluck('kode_komponen')->all();
 
             foreach ($components->values() as $index => $input) {
                 $componentId = isset($input['id_komponen']) ? (int) $input['id_komponen'] : null;
@@ -402,6 +406,7 @@ class FlexibleNilaiService
         if ($user->role !== 'admin' && (int) $skema->id_guru !== $guruId) {
             throw new InvalidArgumentException('Anda tidak berhak mengubah skema penilaian ini.');
         }
+        $this->assertGuruCanManageContext($guruId, $skema->toArray());
     }
 
     private function assertSchemeMatchesMeta(SkemaPenilaian $skema, array $meta): void
@@ -429,7 +434,8 @@ class FlexibleNilaiService
         }
 
         $mapel = Mapel::findOrFail($params['id_mapel']);
-        $assigned = (int) $mapel->id_guru === $guruId
+        $assigned = ((int) $mapel->id_guru === $guruId
+                && $mapel->kelas()->where('kelas.id_kelas', $params['id_kelas'])->exists())
             || JadwalPelajaran::query()
                 ->where('id_guru', $guruId)
                 ->where('id_mapel', $params['id_mapel'])

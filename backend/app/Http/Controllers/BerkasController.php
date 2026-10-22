@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Pendaftaran;
 use App\Services\PpdbBerkasService;
 use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 
 class BerkasController extends Controller
@@ -14,6 +16,20 @@ class BerkasController extends Controller
     use AuditsAdminActions;
 
     public function __construct(private PpdbBerkasService $berkasService) {}
+
+    public function show(Pendaftaran $pendaftaran, string $jenis)
+    {
+        $column = PpdbBerkasService::FILE_COLUMNS[$jenis] ?? null;
+        abort_unless($column, 404);
+        $path = $pendaftaran->dokumen?->{$column};
+        $disk = Storage::disk(config('ppdb.berkas.storage_disk'));
+        abort_unless($path && $disk->exists($path), 404);
+
+        return $disk->response($path, basename($path), [
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
 
     public function index()
     {

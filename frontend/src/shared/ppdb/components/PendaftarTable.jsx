@@ -25,8 +25,6 @@ export default function PendaftarTable({ ppdb, readOnly = false }) {
   const loading = Boolean(ppdb?.loading);
   const isFetching = Boolean(ppdb?.isFetching);
   const stats = ppdb?.stats || {};
-  const terima = ppdb?.terima || (() => {});
-  const tolak = ppdb?.tolak || (() => {});
 
   return (
     <>

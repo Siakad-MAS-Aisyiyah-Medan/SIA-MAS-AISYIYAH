@@ -9,6 +9,7 @@ use App\Models\Siswa;
 use App\Utils\AuditsAdminActions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class BiodataController extends Controller
 {
@@ -16,17 +17,17 @@ class BiodataController extends Controller
 
     public function update(Request $request): JsonResponse
     {
-        try {
+        return DB::transaction(function () use ($request) {
             $user = auth()->user();
             $role = $user->role;
 
             if ($role === 'guru') {
                 $validated = $request->validate([
-                    'nip' => 'nullable|string|max:50',
-                    'nip_nuptk' => 'nullable|string|max:50',
+                    'nip' => 'nullable|string|max:50|unique:guru,nip,'.$user->id_user.',id_user',
+                    'nip_nuptk' => 'nullable|string|max:50|unique:guru,nip,'.$user->id_user.',id_user',
                     'nama_guru' => 'required|string|max:255',
                     'jenis_kelamin' => 'nullable|string|in:L,P',
-                    'tgl_lahir' => 'nullable|date',
+                    'tgl_lahir' => 'nullable|date|before_or_equal:today',
                     'agama' => 'nullable|string|max:50',
                     'alamat' => 'nullable|string',
                     'no_hp' => 'nullable|string|max:20',
@@ -56,11 +57,11 @@ class BiodataController extends Controller
                 $profile->save();
             } elseif ($role === 'siswa') {
                 $validated = $request->validate([
-                    'nisn' => 'nullable|string|max:20',
-                    'nis' => 'nullable|string|max:20',
+                    'nisn' => 'nullable|string|max:20|unique:siswa,nisn,'.$user->id_user.',id_user',
+                    'nis' => 'nullable|string|max:20|unique:siswa,nis,'.$user->id_user.',id_user',
                     'nama_siswa' => 'required|string|max:255',
                     'tempat_lahir' => 'nullable|string|max:100',
-                    'tgl_lahir' => 'nullable|date',
+                    'tgl_lahir' => 'nullable|date|before_or_equal:today',
                     'jenis_kelamin' => 'nullable|string|in:L,P',
                     'agama' => 'nullable|string|max:50',
                     'alamat' => 'nullable|string',
@@ -105,7 +106,7 @@ class BiodataController extends Controller
                     'nip' => 'nullable|string|max:50',
                     'nama_lengkap' => 'required|string|max:255',
                     'jenis_kelamin' => 'nullable|string|in:L,P',
-                    'tgl_lahir' => 'nullable|date',
+                    'tgl_lahir' => 'nullable|date|before_or_equal:today',
                     'no_hp' => 'nullable|string|max:20',
                     'alamat' => 'nullable|string',
                 ]);
@@ -164,6 +165,8 @@ class BiodataController extends Controller
                 ], 400);
             }
 
+            $user->update(['name' => $profile->nama_guru ?? $profile->nama_siswa ?? $profile->nama_kepsek ?? $profile->nama_admin]);
+
             $this->auditAdmin('profile.biodata.update', null, ['role' => $role]);
 
             return response()->json([
@@ -171,12 +174,6 @@ class BiodataController extends Controller
                 'message' => 'Biodata berhasil diperbarui.',
                 'data' => $profile,
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ], 500);
-        }
+        });
     }
 }

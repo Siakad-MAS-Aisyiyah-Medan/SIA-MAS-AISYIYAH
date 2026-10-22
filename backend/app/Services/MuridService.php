@@ -12,21 +12,37 @@ use InvalidArgumentException;
 
 class MuridService
 {
-    use AuditsAdminActions;
-
     public function __construct(private EnrollmentService $enrollment) {}
 
-    public function listMurid(?string $search = null, int $perPage = 15): LengthAwarePaginator
-    {
+    use AuditsAdminActions;
+
+    public function listMurid(
+        ?string $search = null,
+        int $perPage = 15,
+        ?int $idKelas = null,
+        ?string $statusSiswa = null
+    ): LengthAwarePaginator {
         $query = User::query()
             ->with(['siswa.kelas', 'pendaftaran'])
             ->where('role', 'siswa');
+
+        if ($idKelas) {
+            $query->whereHas('siswa', fn ($s) => $s->where('id_kelas', $idKelas));
+        }
+
+        if ($statusSiswa) {
+            $query->whereHas('siswa', fn ($s) => $s->where('status_siswa', $statusSiswa));
+        }
 
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('username', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhereHas('siswa', fn ($s) => $s->where('nama_siswa', 'like', "%{$search}%"))
+                    ->orWhereHas('siswa', fn ($s) => $s
+                        ->where('nama_siswa', 'like', "%{$search}%")
+                        ->orWhere('nisn', 'like', "%{$search}%"))
+                    ->orWhereHas('siswa.kelas', fn ($k) => $k
+                        ->where('nama_kelas', 'like', "%{$search}%"))
                     ->orWhereHas('pendaftaran', fn ($p) => $p->where('nama_lengkap', 'like', "%{$search}%"));
             });
         }
@@ -49,6 +65,9 @@ class MuridService
     {
         return DB::transaction(function () use ($data) {
             $statusSiswa = $data['status_siswa'] ?? Siswa::STATUS_AKTIF;
+            if ($statusSiswa === Siswa::STATUS_AKTIF) {
+                app(StudentPlacementService::class)->assertAvailable($data['id_kelas'] ?? null);
+            }
             $akunAktif = $statusSiswa === Siswa::STATUS_AKTIF
                 ? ($data['status_aktif'] ?? true)
                 : false;
@@ -65,12 +84,15 @@ class MuridService
 
             $user->siswa()->create([
                 'nama_siswa' => $data['nama_siswa'],
-                'nisn' => $data['nisn'] ?? null,
-                'nis' => $data['nis'] ?? null,
+                'nisn' => $data['nisn'] ?? $data['username'],
+                'nis' => $data['nis'] ?? $this->enrollment->generateUniqueNis(),
                 'jenis_kelamin' => $data['jenis_kelamin'],
-                'tempat_lahir' => $data['tempat_lahir'] ?? null,
-                'tanggal_lahir' => $data['tanggal_lahir'] ?? null,
+                'tempat_lahir' => $data['tempat_lahir'] ?? '-',
+                'tgl_lahir' => $data['tanggal_lahir'] ?? now()->toDateString(),
+                'agama' => $data['agama'] ?? 'Islam',
                 'alamat' => $data['alamat'] ?? null,
+                'nama_wali' => $data['nama_wali'] ?? '-',
+                'no_hp_wali' => $data['no_hp_wali'] ?? ($data['no_hp'] ?? '-'),
                 'no_hp' => $data['no_hp'] ?? null,
                 'tahun_masuk' => $data['tahun_masuk'],
                 'tahun_lulus' => $statusSiswa === Siswa::STATUS_LULUS
@@ -108,14 +130,23 @@ class MuridService
         DB::transaction(function () use ($user, $data) {
             $statusLama = $user->siswa?->status_siswa ?? Siswa::STATUS_AKTIF;
             $statusSiswa = $data['status_siswa'] ?? $statusLama;
+            if ($statusSiswa === Siswa::STATUS_AKTIF) {
+                app(StudentPlacementService::class)->assertAvailable($data['id_kelas'] ?? $user->siswa?->id_kelas, $user->id_user);
+            }
             $akunAktif = $statusSiswa === Siswa::STATUS_AKTIF
                 ? ($data['status_aktif'] ?? $user->status_aktif)
                 : false;
 
             $user->update([
+                'name' => $data['nama_siswa'],
+                'username' => $data['username'] ?? $user->username,
+                'email' => array_key_exists('email', $data) ? $data['email'] : $user->email,
                 'status_aktif' => $akunAktif,
                 'status_akun' => $akunAktif ? 'aktif' : 'nonaktif',
             ]);
+            if (! empty($data['password'])) {
+                $user->update(['password' => $data['password']]);
+            }
 
             if (! $akunAktif) {
                 $user->tokens()->delete();
@@ -126,7 +157,11 @@ class MuridService
                 $fields = ['nama_siswa', 'nisn', 'nis', 'jenis_kelamin', 'tempat_lahir', 'tanggal_lahir', 'alamat', 'no_hp', 'tahun_masuk', 'id_kelas'];
                 foreach ($fields as $field) {
                     if (array_key_exists($field, $data)) {
-                        $siswaData[$field] = $data[$field];
+                        // Prevent wiping NOT NULL columns
+                        if (($field === 'nis' || $field === 'nisn') && $data[$field] === null) {
+                            continue;
+                        }
+                        $siswaData[$field === 'tanggal_lahir' ? 'tgl_lahir' : $field] = $data[$field];
                     }
                 }
 
@@ -165,20 +200,23 @@ class MuridService
 
         if ($user->role === 'siswa') {
             if ($user->siswa?->status_siswa === Siswa::STATUS_LULUS) {
-                throw new InvalidArgumentException('Data alumni tidak boleh dihapus.');
+                throw new InvalidArgumentException(
+                    'Data alumni tidak boleh dihapus. Gunakan arsip alumni untuk mempertahankan riwayat akademik.'
+                );
             }
 
-            if (
-                DB::table('nilai')->where('id_user_siswa', $id)->exists()
-                || DB::table('absensi')->where('id_user_siswa', $id)->exists()
-            ) {
+            $hasAcademicHistory = DB::table('nilai')->where('id_user_siswa', $id)->exists()
+                || DB::table('absensi')->where('id_user_siswa', $id)->exists();
+
+            if ($hasAcademicHistory) {
                 throw new InvalidArgumentException(
-                    'Data murid memiliki riwayat akademik. Ubah statusnya menjadi Tidak Aktif.'
+                    'Data murid memiliki riwayat nilai atau absensi dan tidak boleh dihapus permanen. Ubah statusnya menjadi Tidak Aktif.'
                 );
             }
         }
 
         $this->auditAdmin('murid.delete', $user, ['username' => $user->username]);
+        $user->tokens()->delete();
         $user->delete();
     }
 

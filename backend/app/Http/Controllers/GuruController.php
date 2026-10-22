@@ -2,22 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Guru;
-use App\Models\JadwalPelajaran;
-use App\Models\Kelas;
-use App\Models\Mapel;
-use App\Models\User;
+use App\Services\GuruService;
 use App\Utils\ApiResponse;
-use App\Utils\AuditsAdminActions;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 
 class GuruController extends Controller
 {
+    public function __construct(private GuruService $service) {}
+
     public function index(Request $request)
     {
         $validated = $request->validate([
@@ -26,7 +19,7 @@ class GuruController extends Controller
             'role' => 'nullable|in:guru',
         ]);
 
-        $paginator = $this->listGuru(
+        $paginator = $this->service->listGuru(
             $validated['search'] ?? null,
             (int) ($validated['per_page'] ?? 15),
             $validated['role'] ?? null
@@ -53,7 +46,7 @@ class GuruController extends Controller
         ]);
 
         try {
-            $guru = $this->createGuru($validated);
+            $guru = $this->service->createGuru($validated);
 
             return ApiResponse::success($guru, 'Data Guru berhasil ditambahkan', 201);
         } catch (\Throwable $e) {
@@ -82,7 +75,7 @@ class GuruController extends Controller
         ]);
 
         try {
-            $guru = $this->updateGuru((int) $id, $validated);
+            $guru = $this->service->updateGuru((int) $id, $validated);
 
             return ApiResponse::success($guru, 'Data Guru berhasil diperbarui');
         } catch (InvalidArgumentException $e) {
@@ -97,7 +90,7 @@ class GuruController extends Controller
     public function destroy($id)
     {
         try {
-            $this->deleteGuru((int) $id);
+            $this->service->deleteGuru((int) $id);
 
             return ApiResponse::success(null, 'Data Guru berhasil dihapus');
         } catch (InvalidArgumentException $e) {
@@ -107,161 +100,5 @@ class GuruController extends Controller
 
             return ApiResponse::error('Gagal menghapus data guru', 500);
         }
-    }
-
-    // --- Inlined from GuruService ---
-
-    use AuditsAdminActions;
-
-    private function listGuru(?string $search = null, int $perPage = 15, ?string $role = null): LengthAwarePaginator
-    {
-        $query = User::with('guru')->where('role', 'guru');
-
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('username', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhereHas('guru', fn ($g) => $g->where('nama_guru', 'like', "%{$search}%"));
-            });
-        }
-
-        return $query->orderByDesc('id_user')->paginate($perPage);
-    }
-
-    private function createGuru(array $data): User
-    {
-        return DB::transaction(function () use ($data) {
-            $user = User::create([
-                'name' => $data['nama_guru'],
-                'username' => $data['username'],
-                'email' => $data['email'] ?? null,
-                'password' => $data['password'],
-                'role' => $data['role'],
-                'status_aktif' => true,
-                'status_akun' => $data['status'],
-            ]);
-
-            $fotoPath = null;
-            if (isset($data['foto']) && $data['foto'] instanceof UploadedFile) {
-                $fotoPath = '/storage/'.$data['foto']->store('guru', 'public');
-            }
-
-            Guru::create([
-                'id_user' => $user->id_user,
-                'nip' => $data['nip'],
-                'nama_guru' => $data['nama_guru'],
-                'jenis_kelamin' => $data['jenis_kelamin'],
-                'agama' => $data['agama'],
-                'alamat' => $data['alamat'],
-                'no_hp' => $data['no_hp'],
-                'status' => $data['status'],
-                'foto' => $fotoPath,
-            ]);
-
-            $created = User::with('guru')->findOrFail($user->id_user);
-            $this->auditAdmin('guru.create', $created, ['username' => $created->username]);
-
-            return $created;
-        });
-    }
-
-    private function updateGuru(int $id, array $data): User
-    {
-        return DB::transaction(function () use ($id, $data) {
-            $user = User::findOrFail($id);
-
-            if ($user->role !== 'guru' && ($data['role'] ?? '') !== 'guru') {
-                throw new InvalidArgumentException('User bukan guru.');
-            }
-
-            $user->fill([
-                'name' => $data['nama_guru'],
-                'username' => $data['username'],
-                'email' => $data['email'] ?? null,
-                'status_aktif' => $data['status_aktif'] ?? $user->status_aktif,
-            ]);
-            $user->role = $data['role'];
-            $user->save();
-
-            if (! empty($data['password'])) {
-                $user->update(['password' => $data['password']]);
-            }
-
-            $guru = Guru::where('id_user', $id)->first();
-            $fotoPath = $guru ? $guru->foto : null;
-
-            if (isset($data['foto']) && $data['foto'] instanceof UploadedFile) {
-                if ($fotoPath) {
-                    $oldPath = str_replace('/storage/', '', $fotoPath);
-                    Storage::disk('public')->delete($oldPath);
-                }
-                $fotoPath = '/storage/'.$data['foto']->store('guru', 'public');
-            }
-
-            $profilePayload = [
-                'nip' => $data['nip'],
-                'nama_guru' => $data['nama_guru'],
-                'jenis_kelamin' => $data['jenis_kelamin'],
-                'agama' => $data['agama'],
-                'alamat' => $data['alamat'],
-                'no_hp' => $data['no_hp'],
-                'status' => $data['status'],
-                'foto' => $fotoPath,
-            ];
-
-            if ($guru) {
-                $guru->update($profilePayload);
-            } else {
-                Guru::create(array_merge(['id_user' => $id], $profilePayload));
-            }
-
-            $updated = User::with('guru')->findOrFail($id);
-            $this->auditAdmin('guru.update', $updated, ['username' => $updated->username]);
-
-            return $updated;
-        });
-    }
-
-    private function deleteGuru(int $id): void
-    {
-        DB::transaction(function () use ($id) {
-            $user = User::findOrFail($id);
-
-            if ($user->role !== 'guru') {
-                throw new InvalidArgumentException('User bukan guru.');
-            }
-
-            $this->assertCanDeleteGuru($id);
-
-            // Menonaktifkan akun user
-            $user->update(['status_aktif' => false]);
-
-            // Menonaktifkan profil guru
-            Guru::where('id_user', $id)->update(['status' => 'nonaktif']);
-
-            $this->auditAdmin('guru.deactivate', $user, ['username' => $user->username]);
-        });
-    }
-
-    private function assertCanDeleteGuru(int $userId): void
-    {
-        if (Kelas::where('id_wali_kelas', $userId)->exists()) {
-            throw new InvalidArgumentException(
-                'Guru tidak dapat dinonaktifkan karena masih menjadi wali kelas. Ubah wali kelas terlebih dahulu.'
-            );
-        }
-
-        if (Mapel::where('id_guru', $userId)->exists()) {
-            throw new InvalidArgumentException(
-                'Guru tidak dapat dinonaktifkan karena masih menjadi pengampu mata pelajaran.'
-            );
-        }
-
-        if (JadwalPelajaran::where('id_guru', $userId)->exists()) {
-            throw new InvalidArgumentException(
-                'Guru tidak dapat dinonaktifkan karena masih memiliki jadwal mengajar.'
-            );
-        }
-
     }
 }

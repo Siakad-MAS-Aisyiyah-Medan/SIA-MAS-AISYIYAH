@@ -1,10 +1,8 @@
 import apiClient from '@/shared/services/apiClient';
-import { unwrapPaginated } from '@/shared/services/apiHelpers';
+import { fetchAllPages } from '@/shared/services/apiHelpers';
 
 export async function fetchMuridList(params = {}) {
-  const response = await apiClient.get('/murid', { params });
-  const { items } = unwrapPaginated(response);
-  return items;
+  return fetchAllPages(apiClient, '/murid', params);
 }
 
 export async function fetchMuridStats() {

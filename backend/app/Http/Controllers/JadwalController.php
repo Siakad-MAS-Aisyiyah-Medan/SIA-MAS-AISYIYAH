@@ -2,27 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Resources\JadwalResource;
-use App\Models\JadwalPelajaran;
 use App\Models\Mapel;
 use App\Models\Siswa;
 use App\Models\TahunAjaran;
+use App\Services\JadwalService;
 use App\Utils\ApiResponse;
-use App\Utils\AuditsAdminActions;
 use App\Utils\GuruPengampuUser;
-use App\Utils\SearchInput;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use InvalidArgumentException;
 
 class JadwalController extends Controller
 {
-    public function __construct() {}
+    public function __construct(private JadwalService $service) {}
 
     public function adminIndex(Request $request)
     {
-        $paginator = $this->list(
+        $paginator = $this->service->list(
             $request->query('search'),
             (int) $request->query('per_page', 15)
         );
@@ -41,7 +36,7 @@ class JadwalController extends Controller
         ]);
 
         try {
-            $jadwal = $this->create($validated);
+            $jadwal = $this->service->create($validated);
 
             return ApiResponse::success($jadwal, 'Jadwal berhasil ditambahkan', 201);
 
@@ -63,7 +58,7 @@ class JadwalController extends Controller
         ]);
 
         try {
-            $jadwal = $this->processUpdate((int) $id, $validated);
+            $jadwal = $this->service->processUpdate((int) $id, $validated);
 
             return ApiResponse::success($jadwal, 'Jadwal berhasil diperbarui');
 
@@ -77,7 +72,7 @@ class JadwalController extends Controller
     public function adminDestroy($id)
     {
         try {
-            $this->delete((int) $id);
+            $this->service->delete((int) $id);
 
             return ApiResponse::success(null, 'Jadwal berhasil dihapus');
         } catch (\Throwable $e) {
@@ -95,8 +90,10 @@ class JadwalController extends Controller
             return ApiResponse::error('Akses jadwal mengajar hanya untuk guru.', 403);
         }
 
-        $tahunAjaran = TahunAjaran::where('status', 'aktif')->first()?->tahun_ajaran ?? '2025/2026';
-        $semester = (int) date('n') >= 7 || (int) date('n') <= 12 ? 'Ganjil' : 'Genap';
+        $period = TahunAjaran::where('status', 'Aktif')->first();
+        $year = now()->month >= 7 ? now()->year : now()->year - 1;
+        $tahunAjaran = $period?->tahun_ajaran ?? $year.'/'.($year + 1);
+        $semester = $period?->semester ?? (now()->month >= 7 ? 'Ganjil' : 'Genap');
 
         $items = Mapel::with(['kelas'])
             ->where('id_guru', $user->id_user)
@@ -191,7 +188,7 @@ class JadwalController extends Controller
         }
 
         try {
-            $items = $this->listForSiswa(
+            $items = $this->service->listForSiswa(
                 (int) $user->id_user,
                 $request->query('tahun_ajaran'),
                 $request->query('semester')
@@ -201,92 +198,5 @@ class JadwalController extends Controller
         } catch (InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), 422);
         }
-    }
-
-    // --- Inlined from JadwalService ---
-
-    use AuditsAdminActions;
-
-    private function list(?string $search = null, int $perPage = 15): LengthAwarePaginator
-    {
-        $query = JadwalPelajaran::with(['kelas', 'mapel', 'guru.guru']);
-
-        if ($term = SearchInput::escape($search)) {
-            $query->where(function ($q) use ($term) {
-                $q->whereHas('kelas', fn ($k) => $k->where('nama_kelas', 'like', "%{$term}%"))
-                    ->orWhereHas('mapel', fn ($m) => $m->where('nama_mapel', 'like', "%{$term}%"));
-            });
-        }
-
-        $paginator = $query->paginate($perPage);
-        $paginator->getCollection()->transform(
-            fn ($item) => (new JadwalResource($item))->resolve()
-        );
-
-        return $paginator;
-    }
-
-    private function listForGuru(int $userId, ?string $tahunAjaran = null, ?string $semester = null): Collection
-    {
-        $query = JadwalPelajaran::with(['kelas', 'mapel', 'guru.guru'])
-            ->where('id_guru', $userId);
-
-        if ($tahunAjaran) {
-            $query->where('tahun_ajaran', $tahunAjaran);
-        }
-        if ($semester) {
-            $query->where('semester', $semester);
-        }
-
-        return $query->get()->map(
-            fn ($item) => (new JadwalResource($item))->resolve()
-        );
-    }
-
-    private function listForSiswa(int $userId, ?string $tahunAjaran = null, ?string $semester = null): Collection
-    {
-        $siswa = Siswa::where('id_user', $userId)->first();
-
-        if (! $siswa?->id_kelas) {
-            throw new InvalidArgumentException('Anda belum terdaftar di kelas. Hubungi admin sekolah.');
-        }
-
-        $query = JadwalPelajaran::with(['kelas', 'mapel', 'guru.guru'])
-            ->where('id_kelas', $siswa->id_kelas);
-
-        if ($tahunAjaran) {
-            $query->where('tahun_ajaran', $tahunAjaran);
-        }
-        if ($semester) {
-            $query->where('semester', $semester);
-        }
-
-        return $query->get()->map(
-            fn ($item) => (new JadwalResource($item))->resolve()
-        );
-    }
-
-    private function create(array $data): array
-    {
-        $jadwal = JadwalPelajaran::create($data);
-        $this->auditAdmin('jadwal.create', $jadwal, ['id_jadwal' => $jadwal->id_jadwal]);
-
-        return (new JadwalResource($jadwal->load(['kelas', 'mapel', 'guru.guru'])))->resolve();
-    }
-
-    private function processUpdate(int $id, array $data): array
-    {
-        $jadwal = JadwalPelajaran::findOrFail($id);
-        $jadwal->update($data);
-        $this->auditAdmin('jadwal.update', $jadwal, ['id_jadwal' => $jadwal->id_jadwal]);
-
-        return (new JadwalResource($jadwal->fresh(['kelas', 'mapel', 'guru.guru'])))->resolve();
-    }
-
-    private function delete(int $id): void
-    {
-        $jadwal = JadwalPelajaran::findOrFail($id);
-        $this->auditAdmin('jadwal.delete', $jadwal, ['id_jadwal' => $jadwal->id_jadwal]);
-        $jadwal->delete();
     }
 }

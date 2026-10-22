@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Bell, CircleUserRound, LogOut, Menu } from 'lucide-react';
 import Swal from 'sweetalert2';
@@ -13,6 +13,14 @@ export default function CalonMuridLayout({ children, title, subtitle, icon: Icon
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const close = (event) => { if (event.key === 'Escape') setMobileOpen(false); };
+    document.addEventListener('keydown', close);
+    return () => { document.body.style.overflow = previous; document.removeEventListener('keydown', close); };
+  }, [mobileOpen]);
   const user = getJsonItem('user');
   const profile = getJsonItem('profile');
   const displayName = user?.name || profile?.nama_lengkap || user?.username || 'Calon Murid';
@@ -88,6 +96,7 @@ export default function CalonMuridLayout({ children, title, subtitle, icon: Icon
               type="button"
               className="calon-murid-menu-btn"
               aria-label="Buka menu"
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
             >
               <Menu size={22} />

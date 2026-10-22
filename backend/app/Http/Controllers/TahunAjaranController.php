@@ -7,7 +7,10 @@ use App\Models\TahunAjaran;
 use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class TahunAjaranController extends Controller
 {
@@ -23,7 +26,7 @@ class TahunAjaranController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'tahun_ajaran' => 'required|string',
+            'tahun_ajaran' => ['required', 'string', 'regex:/^\d{4}\/\d{4}$/', Rule::unique('tahun_ajarans')->where(fn ($q) => $q->where('semester', $request->semester))->ignore($id ?? null)],
             'semester' => 'required|in:Ganjil,Genap',
             'tanggal_mulai' => 'required|date',
             'tanggal_selesai' => 'required|date|after_or_equal:tanggal_mulai',
@@ -34,12 +37,16 @@ class TahunAjaranController extends Controller
             return ApiResponse::error('Validasi gagal', 422, $validator->errors());
         }
 
-        if ($request->status === 'Aktif') {
-            TahunAjaran::where('status', 'Aktif')->update(['status' => 'Selesai']);
-            $this->updatePengaturanAktif($request->tahun_ajaran, $request->semester);
-        }
+        $tahunAjaran = DB::transaction(function () use ($request, $validator) {
+            TahunAjaran::query()->lockForUpdate()->get();
+            $tahunAjaran = TahunAjaran::create($validator->validated());
+            if ($request->status === 'Aktif') {
+                TahunAjaran::where('id', '!=', $tahunAjaran->id)->where('status', 'Aktif')->update(['status' => 'Selesai']);
+                $this->updatePengaturanAktif($tahunAjaran->tahun_ajaran, $tahunAjaran->semester);
+            }
 
-        $tahunAjaran = TahunAjaran::create($validator->validated());
+            return $tahunAjaran;
+        });
 
         $this->auditAdmin('admin.tahun_ajaran.create', $tahunAjaran, ['tahun_ajaran' => $tahunAjaran->tahun_ajaran, 'semester' => $tahunAjaran->semester]);
 
@@ -59,7 +66,7 @@ class TahunAjaranController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'tahun_ajaran' => 'required|string',
+            'tahun_ajaran' => ['required', 'string', 'regex:/^\d{4}\/\d{4}$/', Rule::unique('tahun_ajarans')->where(fn ($q) => $q->where('semester', $request->semester))->ignore($id ?? null)],
             'semester' => 'required|in:Ganjil,Genap',
             'tanggal_mulai' => 'required|date',
             'tanggal_selesai' => 'required|date|after_or_equal:tanggal_mulai',
@@ -75,12 +82,17 @@ class TahunAjaranController extends Controller
             return ApiResponse::error('Tahun ajaran tidak ditemukan', 404);
         }
 
-        if ($request->status === 'Aktif' && $tahunAjaran->status !== 'Aktif') {
-            TahunAjaran::where('status', 'Aktif')->update(['status' => 'Selesai']);
-            $this->updatePengaturanAktif($request->tahun_ajaran, $request->semester);
-        }
-
-        $tahunAjaran->update($validator->validated());
+        DB::transaction(function () use ($request, $validator, $tahunAjaran) {
+            TahunAjaran::query()->lockForUpdate()->get();
+            if ($tahunAjaran->status === 'Aktif' && $request->status !== 'Aktif') {
+                throw ValidationException::withMessages(['status' => 'Aktifkan periode pengganti untuk menutup periode aktif.']);
+            }
+            $tahunAjaran->update($validator->validated());
+            if ($request->status === 'Aktif') {
+                TahunAjaran::where('id', '!=', $tahunAjaran->id)->where('status', 'Aktif')->update(['status' => 'Selesai']);
+                $this->updatePengaturanAktif($tahunAjaran->tahun_ajaran, $tahunAjaran->semester);
+            }
+        });
 
         $this->auditAdmin('admin.tahun_ajaran.update', $tahunAjaran, ['tahun_ajaran' => $tahunAjaran->tahun_ajaran, 'semester' => $tahunAjaran->semester]);
 
@@ -112,10 +124,12 @@ class TahunAjaranController extends Controller
             return ApiResponse::error('Tahun ajaran tidak ditemukan', 404);
         }
 
-        TahunAjaran::where('status', 'Aktif')->update(['status' => 'Selesai']);
-        $tahunAjaran->update(['status' => 'Aktif']);
-
-        $this->updatePengaturanAktif($tahunAjaran->tahun_ajaran, $tahunAjaran->semester);
+        DB::transaction(function () use ($tahunAjaran) {
+            TahunAjaran::query()->lockForUpdate()->get();
+            TahunAjaran::where('id', '!=', $tahunAjaran->id)->where('status', 'Aktif')->update(['status' => 'Selesai']);
+            $tahunAjaran->update(['status' => 'Aktif']);
+            $this->updatePengaturanAktif($tahunAjaran->tahun_ajaran, $tahunAjaran->semester);
+        });
 
         $this->auditAdmin('admin.tahun_ajaran.activate', $tahunAjaran, ['tahun_ajaran' => $tahunAjaran->tahun_ajaran, 'semester' => $tahunAjaran->semester]);
 
@@ -125,12 +139,12 @@ class TahunAjaranController extends Controller
     private function updatePengaturanAktif($tahun_ajaran, $semester)
     {
         SystemSetting::updateOrCreate(
-            ['group' => 'akademik', 'key' => 'tahun_ajaran_aktif'],
-            ['value' => $tahun_ajaran, 'type' => 'string', 'label' => 'Tahun Ajaran Aktif']
+            ['key' => 'tahun_ajaran_aktif'],
+            ['group' => 'academic', 'value' => $tahun_ajaran, 'type' => 'string', 'label' => 'Tahun Ajaran Aktif']
         );
         SystemSetting::updateOrCreate(
-            ['group' => 'akademik', 'key' => 'semester_aktif'],
-            ['value' => $semester, 'type' => 'string', 'label' => 'Semester Aktif']
+            ['key' => 'semester_aktif'],
+            ['group' => 'academic', 'value' => $semester, 'type' => 'string', 'label' => 'Semester Aktif']
         );
     }
 }

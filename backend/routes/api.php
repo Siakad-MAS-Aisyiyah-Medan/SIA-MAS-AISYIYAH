@@ -18,5 +18,3 @@ Route::prefix('public')->group(function () {
     Route::get('/pengumuman/{id}', [PengumumanController::class, 'publicShow']);
     Route::get('/profil-sekolah', [ProfilSekolahController::class, 'show']);
 });
-Route::get('/ping', function() { return 'pong'; });
-Route::get('/ping2', function() { file_put_contents('ping_test.log', 'reached!'); return 'pong'; });

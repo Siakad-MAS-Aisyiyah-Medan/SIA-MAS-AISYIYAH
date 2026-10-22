@@ -71,7 +71,7 @@ class ProfilSekolahController extends Controller
             $profil = new ProfilSekolah;
         }
 
-        $data = $request->except(['foto_kepsek', 'hero_image']);
+        $data = collect($validator->validated())->except(['foto_kepsek', 'hero_image'])->all();
 
         if ($request->hasFile('foto_kepsek')) {
             if ($profil->foto_kepsek) {

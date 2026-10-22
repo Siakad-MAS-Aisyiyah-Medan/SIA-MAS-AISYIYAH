@@ -3,7 +3,7 @@ import { Eye, EyeOff, ChevronDown, Check } from 'lucide-react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import AppLogo from '@/shared/components/AppLogo';
-import { getRedirectPathForRole, login, saveSession } from '@/shared/services/auth.service';
+import { getRedirectPathForRole, getAccountSettingsPath, login, saveSession } from '@/shared/services/auth.service';
 import { getDisplayName } from '@/shared/utils/profile';
 
 const ACCESS_OPTIONS = [
@@ -45,7 +45,7 @@ export default function LoginPage() {
     Swal.fire({
       icon: 'warning',
       title: 'Sesi Berakhir',
-      text: decodeURIComponent(searchParams.get('message') || 'Sesi Anda telah berakhir. Silakan login kembali.'),
+      text: searchParams.get('message') || 'Sesi Anda telah berakhir. Silakan login kembali.',
     });
   }, [searchParams]);
 
@@ -73,7 +73,9 @@ export default function LoginPage() {
         timer: 1100,
         showConfirmButton: false,
       });
-      navigate(searchParams.get('redirect') || redirect_path || getRedirectPathForRole(user.role), { replace: true });
+      const requestedPath = searchParams.get('redirect');
+      const safePath = requestedPath?.startsWith('/') && !requestedPath.startsWith('//') && !requestedPath.includes('\\') ? requestedPath : null;
+      navigate(user.must_change_password ? getAccountSettingsPath(user.role) : safePath || redirect_path || getRedirectPathForRole(user.role), { replace: true });
     } catch (error) {
       Swal.fire({
         icon: 'error',

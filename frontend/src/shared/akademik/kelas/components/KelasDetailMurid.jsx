@@ -60,7 +60,7 @@ export default function KelasDetailMurid({ kelas, onBack }) {
     <div className="animate-fade-in">
       <PageHeader
         title={`Daftar Murid Kelas ${kelas?.nama_kelas || ''}`}
-        subtitle={`Tahun Ajaran: ${kelas?.tahun_ajaran || '2025/2026'} | Wali Kelas: ${kelas?.wali_kelas?.nama_guru || 'Belum ditentukan'}`}
+        subtitle={`Tahun Ajaran: ${kelas?.tahun_ajaran || '-'} | Wali Kelas: ${kelas?.wali_kelas?.nama_guru || 'Belum ditentukan'}`}
         onBack={onBack}
       >
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>

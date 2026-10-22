@@ -2,7 +2,9 @@
 
 use App\Http\Middleware\CheckPermission;
 use App\Http\Middleware\CheckRole;
+use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\ValidatePagination;
 use App\Utils\ApiResponse;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -23,10 +25,12 @@ $builder = Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => CheckRole::class,
             'permission' => CheckPermission::class,
+            'active' => EnsureActiveAccount::class,
         ]);
 
         $middleware->api(append: [
             SecurityHeaders::class,
+            ValidatePagination::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
@@ -47,6 +51,9 @@ $builder = Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof ValidationException) {
                 return null;
+            }
+            if ($e instanceof InvalidArgumentException) {
+                return ApiResponse::error($e->getMessage(), 422);
             }
 
             if ($e instanceof AuthenticationException) {
@@ -80,9 +87,6 @@ $builder = Application::configure(basePath: dirname(__DIR__))
     });
 
 $app = $builder->create();
-
-// PENGATURAN EKSTREM: Memindahkan storage ke folder Temp bawaan Windows
-$app->useStoragePath(sys_get_temp_dir().DIRECTORY_SEPARATOR.'siakad_storage');
 
 foreach ([
     $app->storagePath('framework/cache/data'),

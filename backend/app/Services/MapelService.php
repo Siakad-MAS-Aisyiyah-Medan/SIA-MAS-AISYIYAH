@@ -4,8 +4,9 @@ namespace App\Services;
 
 use App\Http\Resources\MapelResource;
 use App\Models\Mapel;
-use App\Support\SearchInput;
+use App\Models\Siswa;
 use App\Utils\AuditsAdminActions;
+use App\Utils\SearchInput;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class MapelService
@@ -14,7 +15,22 @@ class MapelService
 
     public function list(?string $search = null, int $perPage = 15): LengthAwarePaginator
     {
-        $query = Mapel::with(['guru.guru']);
+        $query = Mapel::with(['guru.guru', 'kelas']);
+        $user = auth()->user();
+        if ($user?->role === 'guru') {
+            $query->where('id_guru', $user->id_user);
+        }
+
+        if ($user && $user->role === 'siswa') {
+            $siswa = Siswa::where('id_user', $user->id_user)->first();
+            if ($siswa && $siswa->id_kelas) {
+                $query->whereHas('kelas', function ($q) use ($siswa) {
+                    $q->where('kelas_mapel.id_kelas', $siswa->id_kelas);
+                });
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
 
         if ($term = SearchInput::escape($search)) {
             $query->where(function ($q) use ($term) {
@@ -33,19 +49,29 @@ class MapelService
 
     public function create(array $data): array
     {
+        $idKelas = $data['id_kelas'] ?? [];
+        unset($data['id_kelas']);
+
         $mapel = Mapel::create($data);
+        $mapel->kelas()->sync($idKelas);
+
         $this->auditAdmin('mapel.create', $mapel, ['nama_mapel' => $mapel->nama_mapel]);
 
-        return (new MapelResource($mapel->load('guru.guru')))->resolve();
+        return (new MapelResource($mapel->load(['guru.guru', 'kelas'])))->resolve();
     }
 
-    public function update(int $id, array $data): array
+    public function processUpdate(int $id, array $data): array
     {
+        $idKelas = $data['id_kelas'] ?? [];
+        unset($data['id_kelas']);
+
         $mapel = Mapel::findOrFail($id);
         $mapel->update($data);
+        $mapel->kelas()->sync($idKelas);
+
         $this->auditAdmin('mapel.update', $mapel, ['nama_mapel' => $mapel->nama_mapel]);
 
-        return (new MapelResource($mapel->fresh(['guru.guru'])))->resolve();
+        return (new MapelResource($mapel->fresh(['guru.guru', 'kelas'])))->resolve();
     }
 
     public function delete(int $id): void

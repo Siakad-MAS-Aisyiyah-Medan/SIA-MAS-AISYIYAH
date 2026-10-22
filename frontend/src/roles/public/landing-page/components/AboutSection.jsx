@@ -22,6 +22,7 @@ export default function AboutSection({ profil }) {
               {kepsekPhotoUrl ? (
                 <img 
                   src={kepsekPhotoUrl} 
+                  onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/logo-aisyiyah.jpg'; }}
                   alt="Kepala Sekolah" 
                   style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover' }} 
                 />

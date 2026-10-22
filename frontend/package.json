@@ -11,15 +11,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@uiw/react-md-editor": "^4.1.1",
     "axios": "^1.15.0",
     "dompurify": "^3.4.11",
     "exceljs": "^4.4.0",
-    "flatpickr": "^4.6.13",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-flatpickr": "^4.0.11",
     "react-quill-new": "^3.7.0",
     "react-router-dom": "^7.14.1",
     "sweetalert2": "^11.26.24"
@@ -36,6 +33,9 @@
     "vite": "^8.0.4"
   },
   "overrides": {
-    "quill": "2.0.2"
+    "quill": "2.0.2",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

@@ -16,7 +16,7 @@ class ImportController extends Controller
     public function importSiswa(Request $request)
     {
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv',
+            'file' => 'required|file|mimes:xlsx,csv|max:2048',
             'id_kelas' => 'required|exists:kelas,id_kelas',
         ]);
 
@@ -42,7 +42,7 @@ class ImportController extends Controller
     public function importGuru(Request $request)
     {
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv',
+            'file' => 'required|file|mimes:xlsx,csv|max:2048',
         ]);
 
         try {
@@ -71,6 +71,7 @@ class ImportController extends Controller
             [
                 'NISN' => '',
                 'NIS' => '',
+                'password' => '',
                 'nama' => '',
                 'tempat_lahir' => '',
                 'tgl_lahir' => '',
@@ -91,6 +92,7 @@ class ImportController extends Controller
         $data = collect([
             [
                 'nip' => '',
+                'password' => '',
                 'nama' => '',
                 'lp' => '',
                 'agama' => '',

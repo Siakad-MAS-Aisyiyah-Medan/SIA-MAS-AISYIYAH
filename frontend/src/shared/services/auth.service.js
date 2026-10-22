@@ -42,6 +42,7 @@ export async function logout() {
 }
 
 export function saveSession({ user, profile, token, permissions, menus, redirect_path }) {
+  clearAuthStorage();
   setAuthItem('token', token);
   setAuthItem('user', JSON.stringify(user));
   setAuthItem('profile', JSON.stringify(profile ?? null));
@@ -57,23 +58,21 @@ export function clearSession() {
 }
 
 export function getStoredUser() {
-  const raw = getAuthItem('user');
-  return raw ? JSON.parse(raw) : null;
+  return readStoredJson('user', null);
 }
 
 export function getStoredProfile() {
-  const raw = getAuthItem('profile');
-  return raw ? JSON.parse(raw) : null;
+  return readStoredJson('profile', null);
 }
 
 export function getStoredPermissions() {
-  const raw = getAuthItem('permissions');
-  return raw ? JSON.parse(raw) : [];
+  const value = readStoredJson('permissions', []);
+  return Array.isArray(value) ? value : [];
 }
 
 export function getStoredMenus() {
-  const raw = getAuthItem('menus');
-  return raw ? JSON.parse(raw) : [];
+  const value = readStoredJson('menus', []);
+  return Array.isArray(value) ? value : [];
 }
 
 export function getToken() {
@@ -82,6 +81,11 @@ export function getToken() {
 
 export function isAuthenticated() {
   return Boolean(getToken() && getStoredUser());
+}
+
+export function getAccountSettingsPath(role = getStoredUser()?.role) {
+  const prefix = { admin: 'admin', kepsek: 'kepala-sekolah', guru: 'guru', siswa: 'siswa', calon_siswa: 'calon-murid' }[role];
+  return prefix ? `/${prefix}/pengaturan` : '/login';
 }
 
 export function hasPermission(permission) {
@@ -196,4 +200,8 @@ export function getMenuItems() {
     seen.add(item.path);
     return true;
   });
+}
+
+function readStoredJson(key, fallback) {
+  try { return JSON.parse(getAuthItem(key)) ?? fallback; } catch { return fallback; }
 }

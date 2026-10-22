@@ -11,7 +11,7 @@ function pickString(...values) {
 }
 
 function pickArray(value, fallback) {
-  return Array.isArray(value) && value.length > 0 ? value : fallback;
+  return Array.isArray(value) ? value : fallback;
 }
 
 function mapHighlights(apiList, defaults) {

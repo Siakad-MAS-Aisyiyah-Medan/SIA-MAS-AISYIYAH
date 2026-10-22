@@ -6,19 +6,15 @@ use App\Http\Resources\PendaftaranResource;
 use App\Http\Resources\PpdbResource;
 use App\Http\Resources\UserResource;
 use App\Models\Pendaftaran;
-use App\Models\ProfilSekolah;
 use App\Models\SystemSetting;
 use App\Models\User;
-use App\Services\Account\AccountRegistrationService;
-use App\Services\EnrollmentService;
-use App\Services\PendaftaranStateService;
 use App\Services\PpdbBerkasService;
+use App\Services\PpdbService;
+use App\Services\SchoolNumberService;
 use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -28,12 +24,7 @@ class PendaftaranController extends Controller
 {
     use AuditsAdminActions;
 
-    public function __construct(
-        private PendaftaranStateService $state,
-        private PpdbBerkasService $berkasService,
-        private AccountRegistrationService $auth,
-        private EnrollmentService $enrollment
-    ) {}
+    public function __construct(private PpdbService $service, private PpdbBerkasService $berkasService) {}
 
     /**
      * GET /api/ppdb/my-registration
@@ -42,7 +33,7 @@ class PendaftaranController extends Controller
     public function myRegistration()
     {
         $user = Auth::user();
-        $pendaftaran = $this->getByUser($user);
+        $pendaftaran = $this->service->getByUser($user);
 
         return ApiResponse::success([
             'user' => (new UserResource($user))->resolve(),
@@ -59,13 +50,22 @@ class PendaftaranController extends Controller
      */
     public function start()
     {
+        return DB::transaction(function () {
+            User::whereKey(Auth::id())->lockForUpdate()->firstOrFail();
+
+            return $this->startRegistration();
+        });
+    }
+
+    private function startRegistration()
+    {
         $user = Auth::user();
 
         if ($user->role !== 'calon_siswa') {
             return ApiResponse::error('Hanya calon siswa yang dapat memulai pendaftaran', 403);
         }
 
-        $existing = $this->getByUser($user);
+        $existing = $this->service->getByUser($user);
         if ($existing) {
             return ApiResponse::success(
                 PpdbResource::applicant($existing)->resolve(),
@@ -76,11 +76,13 @@ class PendaftaranController extends Controller
         // Buat draft baru
         $pendaftaran = Pendaftaran::create([
             'id_user' => $user->id_user,
+            'tahun_pelajaran' => SystemSetting::getValue('ppdb_tahun_ajaran') ?: (now()->month >= 7 ? now()->year.'/'.(now()->year + 1) : (now()->year - 1).'/'.now()->year),
+            'current_step' => '1',
             'nisn' => $user->username,
             'nama_lengkap' => $user->name ?? '',
             'tempat_lahir' => '',
-            'tgl_lahir' => now()->toDateString(),
-            'jenis_kelamin' => 'L',
+            'tgl_lahir' => null,
+            'jenis_kelamin' => null,
             'agama' => '',
             'kewarganegaraan' => 'Indonesia',
             'anak_ke' => 1,
@@ -132,7 +134,7 @@ class PendaftaranController extends Controller
         $this->auditAdmin('calon_siswa.ppdb.start', $pendaftaran, ['nisn' => $user->username]);
 
         return ApiResponse::success(
-            PpdbResource::applicant($pendaftaran->fresh($this->pendaftaranRelations()))->resolve(),
+            PpdbResource::applicant($pendaftaran->fresh($this->service->pendaftaranRelations()))->resolve(),
             'Draft pendaftaran dibuat',
             201
         );
@@ -143,7 +145,7 @@ class PendaftaranController extends Controller
      */
     public function saveKeteranganPribadi(Request $request)
     {
-        $request->merge($this->normalizeNumericInputs($request, [
+        $request->merge($this->service->normalizeNumericInputs($request, [
             'anak_ke',
             'jml_saudara_kandung',
             'jml_saudara_tiri',
@@ -154,7 +156,7 @@ class PendaftaranController extends Controller
             'nama_lengkap' => 'sometimes|string|max:255',
             'jenis_kelamin' => 'sometimes|in:L,P',
             'tempat_lahir' => 'sometimes|string|max:100',
-            'tgl_lahir' => 'sometimes|date',
+            'tgl_lahir' => 'sometimes|date|before_or_equal:today',
             'agama' => 'sometimes|string|max:50',
             'kewarganegaraan' => 'sometimes|string|max:50',
             'anak_ke' => 'sometimes|integer|min:1',
@@ -174,7 +176,7 @@ class PendaftaranController extends Controller
      */
     public function saveKesehatan(Request $request)
     {
-        $request->merge($this->normalizeNumericInputs($request, [
+        $request->merge($this->service->normalizeNumericInputs($request, [
             'berat_badan',
             'tinggi_badan',
         ]));
@@ -267,12 +269,21 @@ class PendaftaranController extends Controller
      */
     public function submit(?Request $request = null)
     {
+        return DB::transaction(function () {
+            User::whereKey(Auth::id())->lockForUpdate()->firstOrFail();
+
+            return $this->submitRegistration();
+        });
+    }
+
+    private function submitRegistration()
+    {
         $user = Auth::user();
         if ($user->role !== 'calon_siswa') {
             return ApiResponse::error('Hanya calon siswa yang dapat submit', 403);
         }
 
-        $pendaftaran = $this->getByUser($user);
+        $pendaftaran = $this->service->getByUser($user);
         if (! $pendaftaran) {
             return ApiResponse::error('Data pendaftaran tidak ditemukan. Mulai pendaftaran terlebih dahulu.', 404);
         }
@@ -299,14 +310,9 @@ class PendaftaranController extends Controller
         $pendaftaran->status_kelulusan = 'Pending';
         $pendaftaran->submitted_at = now();
         if (! $pendaftaran->no_registrasi) {
-            $year = date('Y');
-            $prefix = "PPDB-{$year}-";
-            $last = Pendaftaran::where('no_registrasi', 'like', $prefix.'%')->orderByDesc('no_registrasi')->value('no_registrasi');
-            $seq = 1;
-            if ($last && preg_match('/(\d+)$/', $last, $m)) {
-                $seq = (int) $m[1] + 1;
-            }
-            $pendaftaran->no_registrasi = $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+            $prefix = 'PPDB-'.now()->year.'-';
+            $pendaftaran->no_registrasi = app(SchoolNumberService::class)->next('ppdb-'.now()->year, $prefix, 'pendaftaran', 'no_registrasi');
+            $pendaftaran->nomor_pendaftaran = $pendaftaran->no_registrasi;
         }
         $pendaftaran->save();
 
@@ -323,7 +329,7 @@ class PendaftaranController extends Controller
      */
     public function status()
     {
-        $pendaftaran = $this->getByUser(Auth::user());
+        $pendaftaran = $this->service->getByUser(Auth::user());
 
         if (! $pendaftaran) {
             return ApiResponse::success(null, 'Belum ada data pendaftaran');
@@ -344,7 +350,7 @@ class PendaftaranController extends Controller
      */
     private function savePendaftaranStep(User $user, array $data, string $msg): JsonResponse
     {
-        $pendaftaran = $this->getByUser($user);
+        $pendaftaran = $this->service->getByUser($user);
         if (! $pendaftaran) {
             return ApiResponse::error('Data pendaftaran tidak ditemukan. Mulai pendaftaran terlebih dahulu.', 404);
         }
@@ -354,14 +360,16 @@ class PendaftaranController extends Controller
             return ApiResponse::error('Pendaftaran tidak dapat diubah pada status: '.$pendaftaran->ppdb_status.'.', 422);
         }
 
-        $pendaftaran->fill($data);
-        $pendaftaran->save();
-        $this->syncPendaftaranDetail($pendaftaran, $data);
+        DB::transaction(function () use ($pendaftaran, $data) {
+            $pendaftaran->fill($data);
+            $pendaftaran->save();
+            $this->service->syncPendaftaranDetail($pendaftaran, $data);
+        });
 
         $this->auditAdmin('calon_siswa.ppdb.update_step', $pendaftaran, ['step' => $data['current_step'] ?? 'unknown']);
 
         return ApiResponse::success(
-            PpdbResource::applicant($pendaftaran->fresh($this->pendaftaranRelations()))->resolve(),
+            PpdbResource::applicant($pendaftaran->fresh($this->service->pendaftaranRelations()))->resolve(),
             $msg
         );
     }
@@ -369,7 +377,7 @@ class PendaftaranController extends Controller
     public function calonShow()
     {
         $user = Auth::user();
-        $data = $this->getByUser($user);
+        $data = $this->service->getByUser($user);
 
         return ApiResponse::success(
             $data ? PendaftaranResource::applicant($data)->resolve() : null
@@ -381,7 +389,7 @@ class PendaftaranController extends Controller
         $validated = $request->validate([
             'nama_lengkap' => 'sometimes|string|max:255',
             'tempat_lahir' => 'sometimes|string|max:100',
-            'tgl_lahir' => 'sometimes|date',
+            'tgl_lahir' => 'sometimes|date|before_or_equal:today',
             'agama' => 'sometimes|string|max:50',
             'kewarganegaraan' => 'sometimes|string|max:50',
             'anak_ke' => 'sometimes|integer|min:1',
@@ -425,7 +433,7 @@ class PendaftaranController extends Controller
         $user = Auth::user();
 
         try {
-            $pendaftaran = $this->saveDraftForUser(
+            $pendaftaran = $this->service->saveDraftForUser(
                 $user,
                 $request->safeFields(),
                 $request
@@ -448,7 +456,7 @@ class PendaftaranController extends Controller
         }
 
         try {
-            $pendaftaran = $this->submitForUser($user);
+            $pendaftaran = $this->service->submitForUser($user);
 
             return ApiResponse::success(
                 PendaftaranResource::applicant($pendaftaran)->resolve(),
@@ -482,7 +490,7 @@ class PendaftaranController extends Controller
     public function calonPpdbMe()
     {
         $user = Auth::user();
-        $data = $this->getByUser($user);
+        $data = $this->service->getByUser($user);
 
         return ApiResponse::success([
             'user' => (new UserResource($user))->resolve(),
@@ -497,8 +505,8 @@ class PendaftaranController extends Controller
             'nama_lengkap' => 'sometimes|string|max:255',
             'jenis_kelamin' => 'sometimes|in:L,P',
             'tempat_lahir' => 'sometimes|string|max:100',
-            'tanggal_lahir' => 'sometimes|date',
-            'tgl_lahir' => 'sometimes|date',
+            'tanggal_lahir' => 'sometimes|date|before_or_equal:today',
+            'tgl_lahir' => 'sometimes|date|before_or_equal:today',
             'agama' => 'sometimes|string|max:50',
             'alamat' => 'sometimes|string',
             'asal_sekolah' => 'sometimes|string|max:255',
@@ -513,7 +521,7 @@ class PendaftaranController extends Controller
         ]);
 
         try {
-            $pendaftaran = $this->saveFormulir(Auth::user(), $validated);
+            $pendaftaran = $this->service->saveFormulir(Auth::user(), $validated);
 
             return ApiResponse::success(
                 PpdbResource::applicant($pendaftaran)->resolve(),
@@ -535,7 +543,7 @@ class PendaftaranController extends Controller
         ]);
 
         try {
-            $berkas = $this->uploadBerkas(
+            $berkas = $this->service->uploadBerkas(
                 Auth::user(),
                 $validated['jenis_berkas'],
                 $request->file('file')
@@ -570,7 +578,7 @@ class PendaftaranController extends Controller
 
     public function calonPpdbStatus()
     {
-        $data = $this->getByUser(Auth::user());
+        $data = $this->service->getByUser(Auth::user());
 
         if (! $data) {
             return ApiResponse::success(null, 'Belum ada data pendaftaran');
@@ -588,7 +596,7 @@ class PendaftaranController extends Controller
 
     public function calonPpdbBukti()
     {
-        $data = $this->getByUser(Auth::user());
+        $data = $this->service->getByUser(Auth::user());
         if (! $data) {
             return ApiResponse::error('Data pendaftaran tidak ditemukan', 404);
         }
@@ -597,17 +605,17 @@ class PendaftaranController extends Controller
             return ApiResponse::error('Bukti hanya tersedia untuk pendaftar yang diterima', 403);
         }
 
-        return ApiResponse::success($this->getBuktiData($data), 'Bukti pendaftaran');
+        return ApiResponse::success($this->service->getBuktiData($data), 'Bukti pendaftaran');
     }
 
     public function publicInfo()
     {
-        return ApiResponse::success($this->getPublicInfo(), 'Informasi PPDB');
+        return ApiResponse::success($this->service->getPublicInfo(), 'Informasi PPDB');
     }
 
     public function downloadBrosur()
     {
-        $path = $this->resolveBrosurStoragePath();
+        $path = $this->service->resolveBrosurStoragePath();
         if (! $path) {
             return response()->json(['message' => 'Brosur not found'], 404);
         }
@@ -622,378 +630,7 @@ class PendaftaranController extends Controller
         ]);
     }
 
-    // --- Inlined from PendaftaranService ---
-
-    private function saveDraftForUser(User $user, array $data, Request $request): Pendaftaran
-    {
-        if ($request->hasFile('file') || $this->hasLegacyUploads($request)) {
-            foreach (PpdbService::BERKAS_JENIS as $jenis) {
-                if ($request->hasFile($jenis)) {
-                    $this->uploadBerkas($user, $jenis, $request->file($jenis));
-                }
-            }
-        }
-
-        return $this->saveFormulir($user, $data);
-    }
-
-    private function submitForUser(User $user): Pendaftaran
-    {
-        return $this->processSubmit($user);
-    }
-
-    private function hasLegacyUploads(Request $request): bool
-    {
-        foreach (['file_ijazah', 'file_stk', 'file_pas_photo', 'file_nisn', 'file_kk', 'file_ktp_ortua'] as $key) {
-            if ($request->hasFile($key)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // --- Inlined from PpdbService ---
-
     /** @deprecated Gunakan PpdbBerkasService::allJenisKeys() */
-    public const BERKAS_JENIS = [
-        'ijazah_atau_skl',
-        'stk',
-        'pas_foto',
-        'nisn',
-        'kartu_keluarga',
-        'ktp_orang_tua',
-    ];
-
-    private const MAX_FILE_BYTES = 2097152;
-
-    private const ALLOWED_MIMES = [
-        'application/pdf',
-        'application/x-pdf',
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-    ];
-
-    private function getPublicInfo(): array
-    {
-        $getJson = function ($key, $default) {
-            $val = SystemSetting::getValue($key);
-            if (! $val) {
-                return $default;
-            }
-            $decoded = json_decode($val, true);
-
-            return (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : $default;
-        };
-
-        $profil = ProfilSekolah::first();
-        $officialPersyaratan = [
-            'Mengisi formulir pendaftaran online',
-            'Foto Copy Ijazah/SKHUN: 2 lembar',
-            'STK asli dan foto copy (dilegalisir): 2 lembar',
-            'Pas photo 3x4 cm (pakai jilbab): 4 lembar',
-            'NISN',
-            'FC Kartu Keluarga: 1 lembar',
-            'FC KTP Orang Tua: 1 lembar',
-        ];
-        $normalizePersyaratan = function (array $items) use ($officialPersyaratan) {
-            $joined = implode(' ', $items);
-            if (str_contains($joined, 'Fotokopi akta kelahiran') || str_contains($joined, 'Fotokopi KIP')) {
-                return $officialPersyaratan;
-            }
-
-            return $items;
-        };
-
-        return [
-            'nama_sekolah' => $profil?->nama_sekolah ?: 'MAS Aisyiyah Medan',
-            'judul' => SystemSetting::getValue('ppdb_judul') ?: 'Penerimaan Peserta Didik Baru',
-            'tahun_ajaran' => SystemSetting::getValue('ppdb_tahun_ajaran') ?: '2026/2027',
-            'deskripsi' => SystemSetting::getValue('ppdb_deskripsi') ?: 'MAS Aisyiyah Medan membuka pendaftaran peserta didik baru Tahun Pelajaran 2026/2027. Buat akun calon murid, lengkapi formulir dan berkas, lalu pantau status pendaftaran secara online.',
-            'hero_highlights' => $getJson('ppdb_hero_highlights', [
-                ['teks' => 'Gratis uang pembangunan', 'ikon' => 'gift'],
-                ['teks' => 'Gratis pendaftaran 20 pendaftar pertama', 'ikon' => 'award'],
-                ['teks' => 'Diskon alumni Muhammadiyah/Aisyiyah', 'ikon' => 'percent'],
-                ['teks' => 'Gratis SPP bagi anak yatim (syarat berlaku)', 'ikon' => 'heart'],
-            ]),
-            'gelombang' => $getJson('ppdb_gelombang', [
-                [
-                    'id' => 'gelombang-1',
-                    'judul' => 'Gelombang 1',
-                    'periode' => 'Januari – Maret 2026',
-                    'badge' => 'Dibuka',
-                    'keuntungan' => [
-                        'Gratis uang pembangunan',
-                        'Gratis uang ekskul 6 bulan untuk juara 1, 2, 3',
-                    ],
-                ],
-                [
-                    'id' => 'gelombang-2',
-                    'judul' => 'Gelombang 2',
-                    'periode' => 'April – Juni 2026',
-                    'badge' => 'Segera',
-                    'keuntungan' => [
-                        'Gratis uang pembangunan',
-                        'Gratis uang ekskul 3 bulan untuk juara 1, 2, 3',
-                    ],
-                ],
-            ]),
-            'promo' => $getJson('ppdb_promo', [
-                [
-                    'judul' => 'Gratis Biaya Pendaftaran',
-                    'deskripsi' => 'Untuk 20 pendaftar pertama pada periode yang ditentukan.',
-                    'ikon' => 'gift',
-                ],
-                [
-                    'judul' => 'Diskon Alumni 50%',
-                    'deskripsi' => 'Alumni SMP/MTs Muhammadiyah/Aisyiyah mendapat diskon khusus.',
-                    'ikon' => 'percent',
-                ],
-                [
-                    'judul' => 'Gratis SPP Anak Yatim',
-                    'deskripsi' => 'Program bantuan SPP bagi anak yatim sesuai ketentuan sekolah.',
-                    'ikon' => 'heart',
-                ],
-                [
-                    'judul' => 'Lingkungan Islami',
-                    'deskripsi' => 'Pembinaan karakter dan keagamaan terintegrasi setiap hari.',
-                    'ikon' => 'church',
-                ],
-                [
-                    'judul' => 'Guru Berpengalaman',
-                    'deskripsi' => 'Tenaga pendidik profesional dan berkompeten di bidangnya.',
-                    'ikon' => 'graduation',
-                ],
-                [
-                    'judul' => 'Pembelajaran Modern',
-                    'deskripsi' => 'Kurikulum nasional dengan penguatan IPTEK dan literasi digital.',
-                    'ikon' => 'monitor',
-                ],
-            ]),
-            'persyaratan' => $normalizePersyaratan($getJson('ppdb_persyaratan', $officialPersyaratan)),
-            'fasilitas' => $getJson('ppdb_fasilitas', [
-                ['nama' => 'Ruang Kelas Luas', 'ikon' => 'building'],
-                ['nama' => 'Ruang Perpustakaan', 'ikon' => 'library'],
-                ['nama' => 'Mushola', 'ikon' => 'church'],
-                ['nama' => 'Lapangan Olahraga', 'ikon' => 'volleyball'],
-                ['nama' => 'Ruang Komputer', 'ikon' => 'monitor'],
-                ['nama' => 'Ruang Keterampilan', 'ikon' => 'utensils'],
-            ]),
-
-            'alur' => $getJson('ppdb_alur', [
-                'Lihat informasi PPDB',
-                'Buat akun calon murid',
-                'Login calon murid',
-                'Isi formulir online',
-                'Upload berkas',
-                'Submit pendaftaran',
-                'Verifikasi admin',
-                'Pengumuman hasil',
-            ]),
-            'kontak' => $getJson('ppdb_kontak', [
-                [
-                    'nama' => 'Muharleny Br Damanik, S.Ag',
-                    'telepon' => ['+62 813 9686 5480'],
-                ],
-                [
-                    'nama' => 'Sri Wahyuni, S.Pd',
-                    'telepon' => ['+62 813 7444 5100'],
-                ],
-                [
-                    'nama' => 'Anggi Mira, S.Pd',
-                    'telepon' => ['+62 813 9686 5480', '+62 813 7444 5100'],
-                ],
-            ]),
-            'alamat' => $profil?->alamat ?: 'Jl. Demak No. 3, Medan',
-            'brosur' => $this->resolveBrosurPublicUrl(),
-            'diperbarui_pada' => now()->toIso8601String(),
-        ];
-    }
-
-    private function resolveBrosurStoragePath(): ?string
-    {
-        $brosurUrl = SystemSetting::getValue('ppdb_brosur');
-
-        if ($brosurUrl) {
-            $path = parse_url($brosurUrl, PHP_URL_PATH) ?: '';
-            $path = preg_replace('/^\/storage\//', '', $path);
-
-            if ($path && Storage::disk('public')->exists($path)) {
-                return $path;
-            }
-        }
-
-        $files = Storage::disk('public')->files('ppdb/brosur');
-        if (empty($files)) {
-            return null;
-        }
-
-        usort($files, function ($a, $b) {
-            return Storage::disk('public')->lastModified($b) <=> Storage::disk('public')->lastModified($a);
-        });
-
-        return $files[0] ?? null;
-    }
-
-    private function resolveBrosurPublicUrl(): ?string
-    {
-        $path = $this->resolveBrosurStoragePath();
-
-        return $path ? Storage::disk('public')->url($path) : null;
-    }
-
-    /**
-     * @deprecated Gunakan AccountRegistrationService via POST /auth/register-calon-siswa (hanya akun, tanpa PPDB).
-     */
-    private function registerCalon(array $data): User
-    {
-        if (User::where('username', $data['nisn'] ?? $data['username'])->exists()) {
-            throw new InvalidArgumentException('NISN sudah terdaftar.');
-        }
-        if (User::where('email', $data['email'])->exists()) {
-            throw new InvalidArgumentException('Email sudah terdaftar.');
-        }
-
-        return $this->auth->registerCalonSiswa([
-            'name' => $data['nama_lengkap'] ?? $data['nama'] ?? $data['name'] ?? '',
-            'email' => $data['email'],
-            'username' => $data['nisn'] ?? $data['username'],
-            'password' => $data['password'],
-        ]);
-    }
-
-    private function getByUser(User $user): ?Pendaftaran
-    {
-        return Pendaftaran::with($this->pendaftaranRelations())
-            ->where('id_user', $user->id_user)
-            ->first();
-    }
-
-    private function pendaftaranRelations(): array
-    {
-        return [
-            'berkas',
-            'user',
-            'keteranganPribadi',
-            'kesehatan',
-            'pendidikanAsal',
-            'orangTuaWali',
-            'kepribadian',
-            'dokumen',
-        ];
-    }
-
-    private function syncPendaftaranDetail(Pendaftaran $pendaftaran, array $data): void
-    {
-        $groups = [
-            'keteranganPribadi' => [
-                'nisn',
-                'nama_lengkap',
-                'tempat_lahir',
-                'tgl_lahir',
-                'jenis_kelamin',
-                'agama',
-                'kewarganegaraan',
-                'anak_ke',
-                'jml_saudara_kandung',
-                'jml_saudara_tiri',
-                'alamat',
-                'no_telp',
-                'status_yatim',
-            ],
-            'kesehatan' => [
-                'berat_badan',
-                'tinggi_badan',
-                'gol_darah',
-                'penyakit_diderita',
-                'cacat_badan',
-            ],
-            'pendidikanAsal' => [
-                'sekolah_asal',
-                'tahun_lulus',
-                'no_sttb',
-                'pindahan_dari',
-                'no_surat_pindah',
-            ],
-            'orangTuaWali' => [
-                'nama_ayah',
-                'nama_ibu',
-                'pendidikan_ayah',
-                'pendidikan_ibu',
-                'pekerjaan_ayah',
-                'pekerjaan_ibu',
-                'agama_ortu',
-                'alamat_ortu',
-                'no_hp_ortu',
-                'no_hp_ayah',
-                'no_hp_ibu',
-                'nama_wali',
-                'pendidikan_wali',
-                'pekerjaan_wali',
-                'agama_wali',
-                'alamat_wali',
-            ],
-            'kepribadian' => [
-                'hobi',
-                'cita_cita',
-            ],
-            'dokumen' => [
-                'file_ijazah',
-                'file_stk',
-                'file_pas_photo',
-                'file_nisn',
-                'file_kk',
-                'file_ktp_ortua',
-                'catatan_dokumen',
-            ],
-        ];
-
-        foreach ($groups as $relation => $fields) {
-            $payload = array_intersect_key($data, array_flip($fields));
-
-            if ($payload === []) {
-                continue;
-            }
-
-            $pendaftaran->{$relation}()->updateOrCreate(
-                ['pendaftaran_id' => $pendaftaran->id_pendaftaran],
-                $payload
-            );
-        }
-    }
-
-    private function saveFormulir(User $user, array $data): Pendaftaran
-    {
-        $mapped = $this->mapFormulirInput($data);
-        $pendaftaran = $this->state->saveDraft($user, $mapped);
-        $this->syncPendaftaranDetail($pendaftaran, $mapped);
-
-        if (! empty($data['nisn'])) {
-            $pendaftaran->nisn = $data['nisn'];
-            $pendaftaran->save();
-        }
-
-        return $pendaftaran->fresh($this->pendaftaranRelations());
-    }
-
-    private function uploadBerkas(User $user, string $jenis, UploadedFile $file): array
-    {
-        return $this->berkasService->upload($user, $jenis, $file);
-    }
-
-    private function processSubmit(User $user): Pendaftaran
-    {
-        $pendaftaran = $this->state->submit($user);
-        if (! $pendaftaran->no_registrasi) {
-            $pendaftaran->no_registrasi = $this->generateNoRegistrasi();
-            $pendaftaran->submitted_at = now();
-            $pendaftaran->save();
-        }
-
-        return $pendaftaran->fresh(['berkas']);
-    }
-
     public function adminPpdbStats()
     {
         $total = Pendaftaran::count();
@@ -1017,122 +654,34 @@ class PendaftaranController extends Controller
     public function adminPpdbIndex(Request $request)
     {
         return ApiResponse::paginated(
-            $this->adminList($request->query('search'), $request->query('status'), (int) $request->query('per_page', 10)),
+            $this->service->adminList($request->query('search'), $request->query('status'), (int) $request->query('per_page', 10)),
             'Berhasil mengambil data PPDB'
         );
     }
 
-    private function adminList(?string $search, ?string $status, int $perPage): LengthAwarePaginator
-    {
-        $query = Pendaftaran::with(['user', 'berkas'])->orderByDesc('updated_at');
-
-        if ($status === 'belum_mengirim') {
-            $query->where('ppdb_status', 'draft');
-        } elseif ($status === 'sudah_mengirim') {
-            $query->whereIn('ppdb_status', ['submitted', 'diajukan', 'terverifikasi', 'verified']);
-        } elseif ($status === 'revisi') {
-            $query->whereIn('ppdb_status', ['revisi', 'dikembalikan']);
-        } elseif ($status === 'diterima') {
-            $query->whereIn('ppdb_status', ['diterima', 'accepted', 'menjadi_murid']);
-        } elseif ($status === 'ditolak') {
-            $query->whereIn('ppdb_status', ['ditolak', 'rejected']);
-        } elseif ($status) {
-            $query->where('ppdb_status', $status);
-        }
-
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('nama_lengkap', 'like', "%{$search}%")
-                    ->orWhere('no_registrasi', 'like', "%{$search}%")
-                    ->orWhere('nisn', 'like', "%{$search}%")
-                    ->orWhereHas('user', fn ($u) => $u->where('username', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%"));
-            });
-        }
-
-        return $query->paginate($perPage);
-    }
-
     public function adminPpdbShow($id)
     {
-        return ApiResponse::success($this->adminFind((int) $id));
-    }
-
-    private function adminFind(int $id): Pendaftaran
-    {
-        $pendaftaran = Pendaftaran::with(['user', 'berkas', 'dokumen'])->findOrFail($id);
-
-        $dokumen = $pendaftaran->dokumen;
-        if ($dokumen) {
-            $pendaftaran->file_ijazah ??= $dokumen->file_ijazah;
-            $pendaftaran->file_stk ??= $dokumen->file_stk;
-            $pendaftaran->file_pas_photo ??= $dokumen->file_pas_photo;
-            $pendaftaran->file_nisn ??= $dokumen->file_nisn;
-            $pendaftaran->file_kk ??= $dokumen->file_kk;
-            $pendaftaran->file_ktp_ortua ??= $dokumen->file_ktp_ortua;
-        }
-
-        return $pendaftaran;
+        return ApiResponse::success($this->service->adminFind((int) $id));
     }
 
     public function adminPpdbVerifikasi($id)
     {
-        return ApiResponse::success($this->adminVerifikasi((int) $id), 'Berhasil verifikasi');
-    }
-
-    private function adminVerifikasi(int $id): Pendaftaran
-    {
-        return $this->state->transitionByAdmin(
-            Pendaftaran::findOrFail($id),
-            'terverifikasi'
-        );
+        return ApiResponse::success($this->service->adminVerifikasi((int) $id), 'Berhasil verifikasi');
     }
 
     public function adminPpdbRevisi(Request $request, $id)
     {
-        return ApiResponse::success($this->adminRevisi((int) $id, $request->input('catatan', '')), 'Berhasil revisi');
-    }
-
-    private function adminRevisi(int $id, string $catatan): Pendaftaran
-    {
-        return $this->state->transitionByAdmin(
-            Pendaftaran::findOrFail($id),
-            'revisi',
-            $catatan
-        );
+        return ApiResponse::success($this->service->adminRevisi((int) $id, $request->input('catatan', '')), 'Berhasil revisi');
     }
 
     public function adminPpdbTerima(Request $request, $id)
     {
-        return ApiResponse::success($this->adminTerima((int) $id, $request->input('catatan', '')), 'Berhasil diterima');
-    }
-
-    private function adminTerima(int $id, ?string $catatan = null): Pendaftaran
-    {
-        $pendaftaran = $this->state->transitionByAdmin(
-            Pendaftaran::findOrFail($id),
-            'diterima',
-            $catatan
-        );
-
-        // Auto enroll menjadi siswa
-        $this->enrollment->enrollCalonSiswa($pendaftaran->id_user);
-
-        return $pendaftaran->fresh(['user', 'berkas']);
+        return ApiResponse::success($this->service->adminTerima((int) $id, $request->input('catatan', '')), 'Berhasil diterima');
     }
 
     public function adminPpdbTolak(Request $request, $id)
     {
-        return ApiResponse::success($this->adminTolak((int) $id, $request->input('catatan', '')), 'Berhasil ditolak');
-    }
-
-    private function adminTolak(int $id, string $catatan): Pendaftaran
-    {
-        return $this->state->transitionByAdmin(
-            Pendaftaran::findOrFail($id),
-            'ditolak',
-            $catatan
-        );
+        return ApiResponse::success($this->service->adminTolak((int) $id, $request->input('catatan', '')), 'Berhasil ditolak');
     }
 
     /**
@@ -1159,125 +708,8 @@ class PendaftaranController extends Controller
 
     public function adminPpdbJadikanMurid(Request $request, $id)
     {
-        return ApiResponse::success($this->adminJadikanMurid((int) $id, $request->input('id_kelas')), 'Berhasil jadikan murid');
-    }
+        $data = $request->validate(['id_kelas' => 'nullable|integer|exists:kelas,id_kelas']);
 
-    private function adminJadikanMurid(int $id, ?int $idKelas = null): array
-    {
-        $pendaftaran = Pendaftaran::findOrFail($id);
-
-        return $this->enrollment->enrollCalonSiswa($pendaftaran->id_user, $idKelas);
-    }
-
-    private function getBuktiData(Pendaftaran $pendaftaran): array
-    {
-        return [
-            'no_registrasi' => $pendaftaran->no_registrasi,
-            'nama_lengkap' => $pendaftaran->nama_lengkap,
-            'nisn' => $pendaftaran->nisn ?? $pendaftaran->user?->username,
-            'status' => $pendaftaran->ppdb_status,
-            'submitted_at' => $pendaftaran->submitted_at,
-            'accepted_at' => $pendaftaran->accepted_at,
-            'sekolah' => 'MAS Aisyiyah Medan',
-            'tahun_ajaran' => '2026/2027',
-        ];
-    }
-
-    private function generateNoRegistrasi(): string
-    {
-        $year = date('Y');
-        $prefix = "PPDB-{$year}-";
-
-        return DB::transaction(function () use ($prefix) {
-            $last = Pendaftaran::where('no_registrasi', 'like', $prefix.'%')
-                ->lockForUpdate()
-                ->orderByDesc('no_registrasi')
-                ->value('no_registrasi');
-
-            $seq = 1;
-            if ($last && preg_match('/-(\d+)$/', $last, $m)) {
-                $seq = (int) $m[1] + 1;
-            }
-
-            return $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-        });
-    }
-
-    private function mapFormulirInput(array $data): array
-    {
-        $map = [
-            'tanggal_lahir' => 'tgl_lahir',
-            'asal_sekolah' => 'sekolah_asal',
-        ];
-
-        $out = [];
-        foreach ($data as $key => $value) {
-            $out[$map[$key] ?? $key] = $value;
-        }
-
-        return $out;
-    }
-
-    private function assertAllowedFile(UploadedFile $file, string $jenis): void
-    {
-        $ext = strtolower($file->getClientOriginalExtension());
-        $allowedExt = ['pdf', 'jpg', 'jpeg', 'png'];
-        if (! in_array($ext, $allowedExt, true)) {
-            throw new InvalidArgumentException("Format file {$jenis} harus PDF, JPG, JPEG, atau PNG.");
-        }
-
-        if (! in_array($file->getMimeType(), self::ALLOWED_MIMES, true)) {
-            throw new InvalidArgumentException("Tipe file {$jenis} tidak valid.");
-        }
-
-        if ($file->getSize() > self::MAX_FILE_BYTES) {
-            throw new InvalidArgumentException("Ukuran file {$jenis} maksimal 5MB.");
-        }
-    }
-
-    private function syncLegacyFileColumn(Pendaftaran $pendaftaran, string $jenis, string $path): void
-    {
-        $legacyMap = [
-            'kartu_keluarga' => 'file_kk',
-            'ijazah_atau_skl' => 'file_ijazah',
-            'foto' => 'file_pas_photo',
-            'rapor' => 'file_stk',
-        ];
-
-        if (isset($legacyMap[$jenis])) {
-            $pendaftaran->{$legacyMap[$jenis]} = $path;
-            $pendaftaran->save();
-        }
-    }
-
-    private function normalizeNumericInputs(Request $request, array $fields): array
-    {
-        $normalized = [];
-
-        foreach ($fields as $field) {
-            if (! $request->exists($field)) {
-                continue;
-            }
-
-            $value = $request->input($field);
-            if ($value === null) {
-                continue;
-            }
-
-            if (is_string($value)) {
-                $value = trim($value);
-                if ($value === '') {
-                    $normalized[$field] = null;
-
-                    continue;
-                }
-            }
-
-            if (is_numeric($value)) {
-                $normalized[$field] = (int) $value;
-            }
-        }
-
-        return $normalized;
+        return ApiResponse::success($this->service->adminJadikanMurid((int) $id, $data['id_kelas'] ?? null), 'Berhasil jadikan murid');
     }
 }

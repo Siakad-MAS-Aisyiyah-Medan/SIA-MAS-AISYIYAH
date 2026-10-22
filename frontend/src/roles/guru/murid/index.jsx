@@ -1,3 +1,4 @@
+import { currentAcademicYear } from '@/shared/utils/academicPeriod';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -19,7 +20,7 @@ export default function GuruMuridPage() {
   const [idKelas, setIdKelas] = useState(searchParams.get('id_kelas') || '');
   const [idMapel, setIdMapel] = useState(searchParams.get('id_mapel') || '');
   const [namaKelas, setNamaKelas] = useState(searchParams.get('nama_kelas') || 'Kelas');
-  const [tahunAjaran, setTahunAjaran] = useState(searchParams.get('tahun_ajaran') || '2025/2026');
+  const [tahunAjaran, setTahunAjaran] = useState(searchParams.get('tahun_ajaran') || currentAcademicYear());
   const [semester, setSemester] = useState(searchParams.get('semester') || 'Ganjil');
 
   const [rows, setRows] = useState([]);
@@ -43,7 +44,7 @@ export default function GuruMuridPage() {
             const first = rowsList[0];
             const nextIdKelas = String(first.id_kelas || first.kelas?.id_kelas || '');
             const nextIdMapel = String(first.id_mapel || first.mapel?.id_mapel || '');
-            const nextTahunAjaran = String(first.tahun_ajaran || '2025/2026');
+            const nextTahunAjaran = String(first.tahun_ajaran || currentAcademicYear());
             const nextSemester = String(first.semester || 'Ganjil');
             const nextNamaKelas = String(first.kelas?.nama_kelas || 'Kelas');
 

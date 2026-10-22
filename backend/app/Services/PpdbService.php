@@ -3,55 +3,100 @@
 namespace App\Services;
 
 use App\Models\Pendaftaran;
+use App\Models\ProfilSekolah;
+use App\Models\SystemSetting;
 use App\Models\User;
+use App\Services\Account\AccountRegistrationService;
+use App\Utils\AuditsAdminActions;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 
 class PpdbService
 {
-    /** @deprecated Gunakan PpdbBerkasService::allJenisKeys() */
-    public const BERKAS_JENIS = [
-        'ijazah_atau_skl',
-        'stk',
-        'pas_foto',
-        'nisn',
-        'kartu_keluarga',
-        'ktp_orang_tua',
-    ];
+    use AuditsAdminActions;
 
-    private const MAX_FILE_BYTES = 2097152;
+    public function __construct(private PendaftaranStateService $state, private PpdbBerkasService $berkasService, private AccountRegistrationService $auth, private EnrollmentService $enrollment) {}
 
-    private const ALLOWED_MIMES = [
-        'application/pdf',
-        'application/x-pdf',
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-    ];
+    public function saveDraftForUser(User $user, array $data, Request $request): Pendaftaran
+    {
+        $fields = array_flip(PpdbBerkasService::FILE_COLUMNS);
+        foreach (PpdbBerkasService::allJenisKeys() as $jenis) {
+            $fields[$jenis] = $jenis;
+        }
+        foreach ($fields as $field => $jenis) {
+            if ($request->hasFile($field)) {
+                $this->uploadBerkas($user, $jenis, $request->file($field));
+            }
+        }
 
-    public function __construct(
-        private PendaftaranStateService $state,
-        private AuthService $auth,
-        private EnrollmentService $enrollment,
-        private PpdbBerkasService $berkasService,
-    ) {}
+        return $this->saveFormulir($user, $data);
+    }
+
+    public function submitForUser(User $user): Pendaftaran
+    {
+        return $this->processSubmit($user);
+    }
+
+    public function hasLegacyUploads(Request $request): bool
+    {
+        foreach (['file_ijazah', 'file_stk', 'file_pas_photo', 'file_nisn', 'file_kk', 'file_ktp_ortua'] as $key) {
+            if ($request->hasFile($key)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function getPublicInfo(): array
     {
+        $getJson = function ($key, $default) {
+            $val = SystemSetting::getValue($key);
+            if (! $val) {
+                return $default;
+            }
+            $decoded = json_decode($val, true);
+
+            return (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : $default;
+        };
+
+        $profil = ProfilSekolah::first();
+        $officialPersyaratan = [
+            'Mengisi formulir pendaftaran online',
+            'Foto Copy Ijazah/SKHUN: 2 lembar',
+            'STK asli dan foto copy (dilegalisir): 2 lembar',
+            'Pas photo 3x4 cm (pakai jilbab): 4 lembar',
+            'NISN',
+            'FC Kartu Keluarga: 1 lembar',
+            'FC KTP Orang Tua: 1 lembar',
+        ];
+        $normalizePersyaratan = function (array $items) use ($officialPersyaratan) {
+            $joined = implode(' ', $items);
+            if (str_contains($joined, 'Fotokopi akta kelahiran') || str_contains($joined, 'Fotokopi KIP')) {
+                return $officialPersyaratan;
+            }
+
+            return $items;
+        };
+
         return [
-            'nama_sekolah' => 'MAS Aisyiyah Medan',
-            'judul' => 'Penerimaan Peserta Didik Baru',
-            'tahun_ajaran' => '2026/2027',
-            'deskripsi' => 'MAS Aisyiyah Medan membuka pendaftaran peserta didik baru Tahun Pelajaran 2026/2027. Buat akun calon murid, lengkapi formulir dan berkas, lalu pantau status pendaftaran secara online.',
-            'hero_highlights' => [
+            'nama_sekolah' => $profil?->nama_sekolah ?: 'MAS Aisyiyah Medan',
+            'judul' => SystemSetting::getValue('ppdb_judul') ?: 'Penerimaan Peserta Didik Baru',
+            'tahun_ajaran' => SystemSetting::getValue('ppdb_tahun_ajaran') ?: '2026/2027',
+            'deskripsi' => SystemSetting::getValue('ppdb_deskripsi') ?: 'MAS Aisyiyah Medan membuka pendaftaran peserta didik baru Tahun Pelajaran 2026/2027. Buat akun calon murid, lengkapi formulir dan berkas, lalu pantau status pendaftaran secara online.',
+            'ekstrakurikuler' => $getJson('ppdb_ekstrakurikuler', []),
+            'hero_highlights' => $getJson('ppdb_hero_highlights', [
                 ['teks' => 'Gratis uang pembangunan', 'ikon' => 'gift'],
                 ['teks' => 'Gratis pendaftaran 20 pendaftar pertama', 'ikon' => 'award'],
                 ['teks' => 'Diskon alumni Muhammadiyah/Aisyiyah', 'ikon' => 'percent'],
                 ['teks' => 'Gratis SPP bagi anak yatim (syarat berlaku)', 'ikon' => 'heart'],
-            ],
-            'gelombang' => [
+            ]),
+            'gelombang' => $getJson('ppdb_gelombang', [
                 [
                     'id' => 'gelombang-1',
                     'judul' => 'Gelombang 1',
@@ -72,8 +117,8 @@ class PpdbService
                         'Gratis uang ekskul 3 bulan untuk juara 1, 2, 3',
                     ],
                 ],
-            ],
-            'promo' => [
+            ]),
+            'promo' => $getJson('ppdb_promo', [
                 [
                     'judul' => 'Gratis Biaya Pendaftaran',
                     'deskripsi' => 'Untuk 20 pendaftar pertama pada periode yang ditentukan.',
@@ -104,26 +149,18 @@ class PpdbService
                     'deskripsi' => 'Kurikulum nasional dengan penguatan IPTEK dan literasi digital.',
                     'ikon' => 'monitor',
                 ],
-            ],
-            'persyaratan' => [
-                'Mengisi formulir pendaftaran online',
-                'Foto Copy Ijazah/SKHUN: 2 lembar',
-                'STK asli dan foto copy (dilegalisir): 2 lembar',
-                'Pas photo 3x4 cm (pakai jilbab): 4 lembar',
-                'NISN',
-                'FC Kartu Keluarga: 1 lembar',
-                'FC KTP Orang Tua: 1 lembar',
-            ],
-            'fasilitas' => [
+            ]),
+            'persyaratan' => $normalizePersyaratan($getJson('ppdb_persyaratan', $officialPersyaratan)),
+            'fasilitas' => $getJson('ppdb_fasilitas', [
                 ['nama' => 'Ruang Kelas Luas', 'ikon' => 'building'],
                 ['nama' => 'Ruang Perpustakaan', 'ikon' => 'library'],
                 ['nama' => 'Mushola', 'ikon' => 'church'],
                 ['nama' => 'Lapangan Olahraga', 'ikon' => 'volleyball'],
                 ['nama' => 'Ruang Komputer', 'ikon' => 'monitor'],
                 ['nama' => 'Ruang Keterampilan', 'ikon' => 'utensils'],
-            ],
+            ]),
 
-            'alur' => [
+            'alur' => $getJson('ppdb_alur', [
                 'Lihat informasi PPDB',
                 'Buat akun calon murid',
                 'Login calon murid',
@@ -132,8 +169,8 @@ class PpdbService
                 'Submit pendaftaran',
                 'Verifikasi admin',
                 'Pengumuman hasil',
-            ],
-            'kontak' => [
+            ]),
+            'kontak' => $getJson('ppdb_kontak', [
                 [
                     'nama' => 'Muharleny Br Damanik, S.Ag',
                     'telepon' => ['+62 813 9686 5480'],
@@ -146,10 +183,43 @@ class PpdbService
                     'nama' => 'Anggi Mira, S.Pd',
                     'telepon' => ['+62 813 9686 5480', '+62 813 7444 5100'],
                 ],
-            ],
-            'alamat' => 'Jl. Demak No. 3, Medan',
+            ]),
+            'alamat' => $profil?->alamat ?: 'Jl. Demak No. 3, Medan',
+            'brosur' => $this->resolveBrosurPublicUrl(),
             'diperbarui_pada' => now()->toIso8601String(),
         ];
+    }
+
+    public function resolveBrosurStoragePath(): ?string
+    {
+        $brosurUrl = SystemSetting::getValue('ppdb_brosur');
+
+        if ($brosurUrl) {
+            $path = parse_url($brosurUrl, PHP_URL_PATH) ?: '';
+            $path = preg_replace('/^\/storage\//', '', $path);
+
+            if ($path && Storage::disk('public')->exists($path)) {
+                return $path;
+            }
+        }
+
+        $files = Storage::disk('public')->files('ppdb/brosur');
+        if (empty($files)) {
+            return null;
+        }
+
+        usort($files, function ($a, $b) {
+            return Storage::disk('public')->lastModified($b) <=> Storage::disk('public')->lastModified($a);
+        });
+
+        return $files[0] ?? null;
+    }
+
+    public function resolveBrosurPublicUrl(): ?string
+    {
+        $path = $this->resolveBrosurStoragePath();
+
+        return $path ? Storage::disk('public')->url($path) : null;
     }
 
     /**
@@ -174,22 +244,116 @@ class PpdbService
 
     public function getByUser(User $user): ?Pendaftaran
     {
-        return Pendaftaran::with('berkas', 'user')
+        return Pendaftaran::with($this->pendaftaranRelations())
             ->where('id_user', $user->id_user)
             ->first();
+    }
+
+    public function pendaftaranRelations(): array
+    {
+        return [
+            'berkas',
+            'user',
+            'keteranganPribadi',
+            'kesehatan',
+            'pendidikanAsal',
+            'orangTuaWali',
+            'kepribadian',
+            'dokumen',
+        ];
+    }
+
+    public function syncPendaftaranDetail(Pendaftaran $pendaftaran, array $data): void
+    {
+        $groups = [
+            'keteranganPribadi' => [
+                'nisn',
+                'nama_lengkap',
+                'tempat_lahir',
+                'tgl_lahir',
+                'jenis_kelamin',
+                'agama',
+                'kewarganegaraan',
+                'anak_ke',
+                'jml_saudara_kandung',
+                'jml_saudara_tiri',
+                'alamat',
+                'no_telp',
+                'status_yatim',
+            ],
+            'kesehatan' => [
+                'berat_badan',
+                'tinggi_badan',
+                'gol_darah',
+                'penyakit_diderita',
+                'cacat_badan',
+            ],
+            'pendidikanAsal' => [
+                'sekolah_asal',
+                'tahun_lulus',
+                'no_sttb',
+                'pindahan_dari',
+                'no_surat_pindah',
+            ],
+            'orangTuaWali' => [
+                'nama_ayah',
+                'nama_ibu',
+                'pendidikan_ayah',
+                'pendidikan_ibu',
+                'pekerjaan_ayah',
+                'pekerjaan_ibu',
+                'agama_ortu',
+                'alamat_ortu',
+                'no_hp_ortu',
+                'no_hp_ayah',
+                'no_hp_ibu',
+                'nama_wali',
+                'pendidikan_wali',
+                'pekerjaan_wali',
+                'agama_wali',
+                'alamat_wali',
+            ],
+            'kepribadian' => [
+                'hobi',
+                'cita_cita',
+            ],
+            'dokumen' => [
+                'file_ijazah',
+                'file_stk',
+                'file_pas_photo',
+                'file_nisn',
+                'file_kk',
+                'file_ktp_ortua',
+                'catatan_dokumen',
+            ],
+        ];
+
+        foreach ($groups as $relation => $fields) {
+            $payload = array_intersect_key($data, array_flip($fields));
+
+            if ($payload === []) {
+                continue;
+            }
+
+            $pendaftaran->{$relation}()->updateOrCreate(
+                ['pendaftaran_id' => $pendaftaran->id_pendaftaran],
+                $payload
+            );
+        }
     }
 
     public function saveFormulir(User $user, array $data): Pendaftaran
     {
         $mapped = $this->mapFormulirInput($data);
         $pendaftaran = $this->state->saveDraft($user, $mapped);
+        $this->syncPendaftaranDetail($pendaftaran, $mapped);
 
         if (! empty($data['nisn'])) {
             $pendaftaran->nisn = $data['nisn'];
             $pendaftaran->save();
         }
 
-        return $pendaftaran->fresh(['berkas']);
+        return $pendaftaran->fresh($this->pendaftaranRelations());
     }
 
     public function uploadBerkas(User $user, string $jenis, UploadedFile $file): array
@@ -197,7 +361,7 @@ class PpdbService
         return $this->berkasService->upload($user, $jenis, $file);
     }
 
-    public function submit(User $user): Pendaftaran
+    public function processSubmit(User $user): Pendaftaran
     {
         $pendaftaran = $this->state->submit($user);
         if (! $pendaftaran->no_registrasi) {
@@ -213,7 +377,17 @@ class PpdbService
     {
         $query = Pendaftaran::with(['user', 'berkas'])->orderByDesc('updated_at');
 
-        if ($status) {
+        if ($status === 'belum_mengirim') {
+            $query->where('ppdb_status', 'draft');
+        } elseif ($status === 'sudah_mengirim') {
+            $query->whereIn('ppdb_status', ['submitted', 'diajukan', 'terverifikasi', 'verified']);
+        } elseif ($status === 'revisi') {
+            $query->whereIn('ppdb_status', ['revisi', 'dikembalikan']);
+        } elseif ($status === 'diterima') {
+            $query->whereIn('ppdb_status', ['diterima', 'accepted', 'menjadi_murid']);
+        } elseif ($status === 'ditolak') {
+            $query->whereIn('ppdb_status', ['ditolak', 'rejected']);
+        } elseif ($status) {
             $query->where('ppdb_status', $status);
         }
 
@@ -232,7 +406,19 @@ class PpdbService
 
     public function adminFind(int $id): Pendaftaran
     {
-        return Pendaftaran::with(['user', 'berkas'])->findOrFail($id);
+        $pendaftaran = Pendaftaran::with(['user', 'berkas', 'dokumen'])->findOrFail($id);
+
+        $dokumen = $pendaftaran->dokumen;
+        if ($dokumen) {
+            $pendaftaran->file_ijazah ??= $dokumen->file_ijazah;
+            $pendaftaran->file_stk ??= $dokumen->file_stk;
+            $pendaftaran->file_pas_photo ??= $dokumen->file_pas_photo;
+            $pendaftaran->file_nisn ??= $dokumen->file_nisn;
+            $pendaftaran->file_kk ??= $dokumen->file_kk;
+            $pendaftaran->file_ktp_ortua ??= $dokumen->file_ktp_ortua;
+        }
+
+        return $pendaftaran;
     }
 
     public function adminVerifikasi(int $id): Pendaftaran
@@ -254,11 +440,18 @@ class PpdbService
 
     public function adminTerima(int $id, ?string $catatan = null): Pendaftaran
     {
-        return $this->state->transitionByAdmin(
-            Pendaftaran::findOrFail($id),
-            'diterima',
-            $catatan
-        );
+        return DB::transaction(function () use ($id, $catatan) {
+            $pendaftaran = $this->state->transitionByAdmin(
+                Pendaftaran::findOrFail($id),
+                'diterima',
+                $catatan
+            );
+
+            // Auto enroll menjadi siswa
+            $this->enrollment->enrollCalonSiswa($pendaftaran->id_user);
+
+            return $pendaftaran->fresh(['user', 'berkas']);
+        });
     }
 
     public function adminTolak(int $id, string $catatan): Pendaftaran
@@ -291,27 +484,14 @@ class PpdbService
         ];
     }
 
-    protected function generateNoRegistrasi(): string
+    public function generateNoRegistrasi(): string
     {
-        $year = date('Y');
-        $prefix = "PPDB-{$year}-";
+        $prefix = 'PPDB-'.now()->year.'-';
 
-        return DB::transaction(function () use ($prefix) {
-            $last = Pendaftaran::where('no_registrasi', 'like', $prefix.'%')
-                ->lockForUpdate()
-                ->orderByDesc('no_registrasi')
-                ->value('no_registrasi');
-
-            $seq = 1;
-            if ($last && preg_match('/-(\d+)$/', $last, $m)) {
-                $seq = (int) $m[1] + 1;
-            }
-
-            return $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-        });
+        return app(SchoolNumberService::class)->next('ppdb-'.now()->year, $prefix, 'pendaftaran', 'no_registrasi');
     }
 
-    protected function mapFormulirInput(array $data): array
+    public function mapFormulirInput(array $data): array
     {
         $map = [
             'tanggal_lahir' => 'tgl_lahir',
@@ -326,35 +506,34 @@ class PpdbService
         return $out;
     }
 
-    protected function assertAllowedFile(UploadedFile $file, string $jenis): void
+    public function normalizeNumericInputs(Request $request, array $fields): array
     {
-        $ext = strtolower($file->getClientOriginalExtension());
-        $allowedExt = ['pdf', 'jpg', 'jpeg', 'png'];
-        if (! in_array($ext, $allowedExt, true)) {
-            throw new InvalidArgumentException("Format file {$jenis} harus PDF, JPG, JPEG, atau PNG.");
+        $normalized = [];
+
+        foreach ($fields as $field) {
+            if (! $request->exists($field)) {
+                continue;
+            }
+
+            $value = $request->input($field);
+            if ($value === null) {
+                continue;
+            }
+
+            if (is_string($value)) {
+                $value = trim($value);
+                if ($value === '') {
+                    $normalized[$field] = null;
+
+                    continue;
+                }
+            }
+
+            if (is_numeric($value)) {
+                $normalized[$field] = (int) $value;
+            }
         }
 
-        if (! in_array($file->getMimeType(), self::ALLOWED_MIMES, true)) {
-            throw new InvalidArgumentException("Tipe file {$jenis} tidak valid.");
-        }
-
-        if ($file->getSize() > self::MAX_FILE_BYTES) {
-            throw new InvalidArgumentException("Ukuran file {$jenis} maksimal 5MB.");
-        }
-    }
-
-    protected function syncLegacyFileColumn(Pendaftaran $pendaftaran, string $jenis, string $path): void
-    {
-        $legacyMap = [
-            'kartu_keluarga' => 'file_kk',
-            'ijazah_atau_skl' => 'file_ijazah',
-            'foto' => 'file_pas_photo',
-            'rapor' => 'file_stk',
-        ];
-
-        if (isset($legacyMap[$jenis])) {
-            $pendaftaran->{$legacyMap[$jenis]} = $path;
-            $pendaftaran->save();
-        }
+        return $normalized;
     }
 }

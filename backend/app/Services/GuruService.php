@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-
 use App\Models\Guru;
 use App\Models\JadwalPelajaran;
 use App\Models\Kelas;
@@ -38,13 +37,14 @@ class GuruService
     {
         return DB::transaction(function () use ($data) {
             $user = User::create([
+                'name' => $data['nama_guru'],
                 'username' => $data['username'],
                 'email' => $data['email'] ?? null,
                 'password' => $data['password'],
-                'status_aktif' => true,
+                'role' => $data['role'],
+                'status_aktif' => $data['status'] === 'aktif',
+                'status_akun' => $data['status'],
             ]);
-            $user->role = $data['role'];
-            $user->save();
 
             $fotoPath = null;
             if (isset($data['foto']) && $data['foto'] instanceof UploadedFile) {
@@ -75,17 +75,22 @@ class GuruService
         return DB::transaction(function () use ($id, $data) {
             $user = User::findOrFail($id);
 
-            if ($user->role !== 'guru' && ($data['role'] ?? '') !== 'guru') {
+            if ($user->role !== 'guru') {
                 throw new InvalidArgumentException('User bukan guru.');
             }
 
             $user->fill([
+                'name' => $data['nama_guru'],
                 'username' => $data['username'],
                 'email' => $data['email'] ?? null,
-                'status_aktif' => $data['status_aktif'] ?? $user->status_aktif,
+                'status_aktif' => $data['status'] === 'aktif' && ($data['status_aktif'] ?? true),
+                'status_akun' => $data['status'] === 'aktif' && ($data['status_aktif'] ?? true) ? 'aktif' : 'nonaktif',
             ]);
             $user->role = $data['role'];
             $user->save();
+            if (! $user->isAkunAktif()) {
+                $user->tokens()->delete();
+            }
 
             if (! empty($data['password'])) {
                 $user->update(['password' => $data['password']]);
@@ -137,28 +142,34 @@ class GuruService
 
             $this->assertCanDeleteGuru($id);
 
-            $this->auditAdmin('guru.delete', $user, ['username' => $user->username]);
-            $user->delete();
+            // Menonaktifkan akun user
+            $user->update(['status_aktif' => false, 'status_akun' => 'nonaktif']);
+            $user->tokens()->delete();
+
+            // Menonaktifkan profil guru
+            Guru::where('id_user', $id)->update(['status' => 'nonaktif']);
+
+            $this->auditAdmin('guru.deactivate', $user, ['username' => $user->username]);
         });
     }
 
-    private function assertCanDeleteGuru(int $userId): void
+    public function assertCanDeleteGuru(int $userId): void
     {
         if (Kelas::where('id_wali_kelas', $userId)->exists()) {
             throw new InvalidArgumentException(
-                'Guru tidak dapat dihapus karena masih menjadi wali kelas. Ubah wali kelas terlebih dahulu.'
+                'Guru tidak dapat dinonaktifkan karena masih menjadi wali kelas. Ubah wali kelas terlebih dahulu.'
             );
         }
 
         if (Mapel::where('id_guru', $userId)->exists()) {
             throw new InvalidArgumentException(
-                'Guru tidak dapat dihapus karena masih menjadi pengampu mata pelajaran.'
+                'Guru tidak dapat dinonaktifkan karena masih menjadi pengampu mata pelajaran.'
             );
         }
 
         if (JadwalPelajaran::where('id_guru', $userId)->exists()) {
             throw new InvalidArgumentException(
-                'Guru tidak dapat dihapus karena masih memiliki jadwal mengajar.'
+                'Guru tidak dapat dinonaktifkan karena masih memiliki jadwal mengajar.'
             );
         }
 

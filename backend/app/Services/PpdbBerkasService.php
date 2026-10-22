@@ -6,7 +6,9 @@ use App\Models\Pendaftaran;
 use App\Models\PendaftaranDokumen;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -32,7 +34,7 @@ class PpdbBerkasService
         'akta_kelahiran' => 'nisn',
     ];
 
-    private const FILE_COLUMNS = [
+    public const FILE_COLUMNS = [
         'ijazah_atau_skl' => 'file_ijazah',
         'kartu_keluarga' => 'file_kk',
         'pas_foto' => 'file_pas_photo',
@@ -40,8 +42,6 @@ class PpdbBerkasService
         'nisn' => 'file_nisn',
         'ktp_orang_tua' => 'file_ktp_ortua',
     ];
-
-    public function __construct(private PendaftaranStateService $state) {}
 
     public static function normalizeJenis(string $jenis): string
     {
@@ -105,20 +105,29 @@ class PpdbBerkasService
         $col = self::FILE_COLUMNS[$jenis];
         $existingPath = $dokumen->$col;
 
-        if ($existingPath && Storage::disk($disk)->exists($existingPath)) {
-            Storage::disk($disk)->delete($existingPath);
-        }
-
         $ext = strtolower($file->getClientOriginalExtension());
         $safeName = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'berkas';
         $storedPath = $file->storeAs(
-            config('ppdb.berkas.storage_path_prefix', 'ppdb').'/'.$user->username,
-            $jenis.'-'.$safeName.'-'.time().'.'.$ext,
+            config('ppdb.berkas.storage_path_prefix', 'ppdb').'/'.$user->id_user,
+            $jenis.'-'.$safeName.'-'.Str::uuid().'.'.$ext,
             $disk
         );
-
-        $dokumen->$col = $storedPath;
-        $dokumen->save();
+        if (! $storedPath) {
+            throw new \RuntimeException('Berkas gagal disimpan. Silakan coba kembali.');
+        }
+        try {
+            DB::transaction(function () use ($dokumen, $col, $storedPath, $pendaftaran) {
+                $dokumen->$col = $storedPath;
+                $dokumen->save();
+                $pendaftaran->update([$col => $storedPath]);
+            });
+        } catch (\Throwable $e) {
+            Storage::disk($disk)->delete($storedPath);
+            throw $e;
+        }
+        if ($existingPath && $existingPath !== $storedPath) {
+            Storage::disk($disk)->delete($existingPath);
+        }
 
         return $this->formatBerkasItem($jenis, self::JENIS[$jenis], $storedPath, $dokumen);
     }
@@ -126,6 +135,9 @@ class PpdbBerkasService
     public function delete(User $user, string $jenis): void
     {
         $jenis = self::normalizeJenis($jenis);
+        if (! array_key_exists($jenis, self::FILE_COLUMNS)) {
+            throw new InvalidArgumentException('Jenis berkas tidak valid.');
+        }
         $pendaftaran = $this->resolveEditablePendaftaran($user);
 
         $dokumen = PendaftaranDokumen::where('pendaftaran_id', $pendaftaran->id_pendaftaran)->first();
@@ -147,6 +159,7 @@ class PpdbBerkasService
 
         $dokumen->$col = null;
         $dokumen->save();
+        $pendaftaran->update([$col => null]);
     }
 
     public function assertAllRequiredUploaded(Pendaftaran $pendaftaran): void
@@ -158,7 +171,7 @@ class PpdbBerkasService
 
         foreach (self::JENIS as $jenis => $label) {
             $col = self::FILE_COLUMNS[$jenis];
-            if (empty($dokumen->$col)) {
+            if (empty($dokumen->$col) || ! Storage::disk(config('ppdb.berkas.storage_disk'))->exists($dokumen->$col)) {
                 throw new InvalidArgumentException('Berkas '.$label.' wajib diunggah sebelum submit.');
             }
         }
@@ -234,7 +247,7 @@ class PpdbBerkasService
         }
 
         $disk = config('ppdb.berkas.storage_disk', 'public');
-        $url = Storage::disk($disk)->url($filePath);
+        $url = self::documentUrl($row->pendaftaran_id, $jenis);
         $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
 
         return [
@@ -278,5 +291,13 @@ class PpdbBerkasService
     protected function getPendaftaranByUser(User $user): ?Pendaftaran
     {
         return Pendaftaran::where('id_user', $user->id_user)->first();
+    }
+
+    public static function documentUrl(int $registrationId, string $jenis): string
+    {
+        return URL::temporarySignedRoute('ppdb.documents.show', now()->addMinutes(30), [
+            'pendaftaran' => $registrationId,
+            'jenis' => $jenis,
+        ]);
     }
 }

@@ -32,6 +32,20 @@ export function unwrapPaginated(response) {
   };
 }
 
+export async function fetchAllPages(client, url, params = {}) {
+  if (params.page !== undefined) {
+    return unwrapPaginated(await client.get(url, { params })).items;
+  }
+  const query = { ...params, per_page: Math.min(params.per_page || 100, 500), page: 1 };
+  const first = unwrapPaginated(await client.get(url, { params: query }));
+  const items = [...first.items];
+  for (let page = 2; page <= (first.meta?.last_page || 1); page++) {
+    const result = unwrapPaginated(await client.get(url, { params: { ...query, page } }));
+    items.push(...result.items);
+  }
+  return items;
+}
+
 export function resolveStorageUrl(path, apiConfig) {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;

@@ -2,11 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Kelas;
+use App\Models\Mapel;
 use App\Models\User;
+use App\Services\GuruService;
+use App\Services\MuridService;
+use App\Utils\ApiResponse;
 use App\Utils\AuditsAdminActions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AkunController extends Controller
 {
@@ -115,22 +122,36 @@ class AkunController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'username' => 'required|string|min:10|max:255|unique:users',
+            'username' => 'required|string|max:255|unique:users',
             'email' => 'nullable|string|email|max:255|unique:users',
-            'password' => 'required|string|min:6',
+            'password' => 'required|string|min:8',
+            'no_hp' => 'nullable|string|max:20',
             'role' => 'required|string|in:'.implode(',', User::ROLES),
             'status' => 'nullable|string|in:aktif,nonaktif',
         ]);
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'username' => $validated['username'],
-            'email' => $validated['email'] ?? null,
-            'password' => Hash::make($validated['password']),
-            'role' => $validated['role'],
-            'status_aktif' => ($validated['status'] ?? 'aktif') === 'aktif',
-            'status_akun' => $validated['status'] ?? 'aktif',
-        ]);
+        if (in_array($validated['role'], ['guru', 'siswa'], true)) {
+            return ApiResponse::error('Tambahkan guru atau murid melalui menu Data Guru atau Data Murid agar biodata akademiknya lengkap.', 422);
+        }
+
+        $user = DB::transaction(function () use ($validated) {
+            $user = User::create([
+                'name' => $validated['name'],
+                'username' => $validated['username'],
+                'email' => $validated['email'] ?? null,
+                'password' => Hash::make($validated['password']),
+                'role' => $validated['role'],
+                'status_aktif' => ($validated['status'] ?? 'aktif') === 'aktif',
+                'status_akun' => $validated['status'] ?? 'aktif',
+            ]);
+            if ($user->role === 'admin') {
+                $user->admin()->create(['nip' => $user->username, 'nama_admin' => $user->name, 'no_hp' => $validated['no_hp'] ?? '-']);
+            } elseif ($user->role === 'kepsek') {
+                $user->kepalaSekolah()->create(['nip' => $user->username, 'nama_kepsek' => $user->name, 'no_hp' => $validated['no_hp'] ?? '-']);
+            }
+
+            return $user;
+        });
 
         $prefix = match ($user->role) {
             'kepsek' => 'kepsek',
@@ -166,8 +187,16 @@ class AkunController extends Controller
             ], 422);
         }
 
-        // We can optionally delete related profile data here if needed,
-        // or rely on database cascading/soft deletes.
+        if (in_array($user->role, ['siswa', 'calon_siswa'], true)) {
+            app(MuridService::class)->deleteMurid((int) $id);
+
+            return ApiResponse::success(null, 'Akun murid berhasil dihapus.');
+        }
+        if ($user->role === 'guru') {
+            app(GuruService::class)->deleteGuru((int) $id);
+
+            return ApiResponse::success(null, 'Akun guru dinonaktifkan; riwayat tetap tersimpan.');
+        }
         $prefix = match ($user->role) {
             'kepsek' => 'kepsek',
             'guru' => 'guru',
@@ -176,6 +205,7 @@ class AkunController extends Controller
             default => 'akun'
         };
         $this->auditAdmin("{$prefix}.delete", $user, ['username' => $user->username]);
+        $user->tokens()->delete();
         $user->delete();
 
         return response()->json([
@@ -195,6 +225,25 @@ class AkunController extends Controller
             'status' => 'nullable|string|in:aktif,nonaktif',
             'no_hp' => 'nullable|string|max:20',
         ]);
+
+        if ($user->role === 'calon_siswa' && $validated['role'] === 'siswa') {
+            return ApiResponse::error('Gunakan proses penerimaan PPDB untuk menjadikan calon murid sebagai siswa.', 422);
+        }
+        if ($validated['role'] !== $user->role && ($user->siswa()->exists()
+            || Mapel::where('id_guru', $user->id_user)->exists()
+            || Kelas::where('id_wali_kelas', $user->id_user)->exists())) {
+            return ApiResponse::error('Role masih terhubung dengan data akademik. Selesaikan penugasan atau gunakan pengelolaan status murid.', 422);
+        }
+        $oldRole = $user->role;
+        if ($user->siswa && $user->siswa->status_siswa !== 'aktif' && ($validated['status'] ?? null) === 'aktif') {
+            return ApiResponse::error('Aktifkan kembali status murid melalui menu Data Murid terlebih dahulu.', 422);
+        }
+        if ($validated['role'] !== $oldRole && in_array($validated['role'], ['guru', 'siswa'], true)) {
+            $relation = $validated['role'] === 'guru' ? 'guru' : 'siswa';
+            if (! $user->{$relation}()->exists()) {
+                return ApiResponse::error('Role tujuan memerlukan biodata dari menu Data Guru atau Data Murid.', 422);
+            }
+        }
 
         if (auth()->id() == $user->id_user && (
             $validated['role'] !== $user->role
@@ -222,11 +271,25 @@ class AkunController extends Controller
         }
 
         if ($request->filled('password')) {
-            $request->validate(['password' => 'string|min:6']);
+            $request->validate(['password' => 'string|min:8']);
             $user->password = Hash::make($request->password);
         }
 
         $user->save();
+
+        if (! $user->isAkunAktif() || $oldRole !== $user->role || $request->filled('password')) {
+            $user->tokens()->delete();
+        }
+        if ($user->role === 'admin') {
+            $user->admin()->firstOrCreate(['id_user' => $user->id_user], ['nip' => $user->username, 'nama_admin' => $user->name, 'no_hp' => $validated['no_hp'] ?? '-']);
+        } elseif ($user->role === 'kepsek') {
+            $user->kepalaSekolah()->firstOrCreate(['id_user' => $user->id_user], ['nip' => $user->username, 'nama_kepsek' => $user->name, 'no_hp' => $validated['no_hp'] ?? '-']);
+        }
+        $relation = $user->expectedProfileRelation();
+        $nameField = ['admin' => 'nama_admin', 'kepsek' => 'nama_kepsek', 'guru' => 'nama_guru', 'siswa' => 'nama_siswa'][$user->role] ?? null;
+        if ($relation && $nameField) {
+            $user->{$relation}()->update([$nameField => $user->name]);
+        }
 
         if ($request->has('no_hp')) {
             $phone = $validated['no_hp'] ?: '-';
@@ -305,7 +368,7 @@ class AkunController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|string|email|max:255|unique:users,email,'.$user->id_user.',id_user',
             'current_password' => 'nullable|string',
-            'new_password' => 'nullable|string|min:6|confirmed',
+            'new_password' => 'nullable|string|min:8|confirmed|not_in:password,admin123,12345678',
         ]);
 
         if ($request->filled('new_password')) {
@@ -324,11 +387,20 @@ class AkunController extends Controller
                 ], 422);
             }
             $user->password = Hash::make($request->new_password);
+            $user->must_change_password = false;
+            $token = $user->currentAccessToken();
+            $user->tokens()->when($token instanceof PersonalAccessToken, fn ($q) => $q->where('id', '!=', $token->id))->delete();
         }
 
         $user->name = $validated['name'];
         $user->email = $validated['email'] ?? null;
         $user->save();
+
+        $relation = $user->expectedProfileRelation();
+        $nameField = ['admin' => 'nama_admin', 'kepsek' => 'nama_kepsek', 'guru' => 'nama_guru', 'siswa' => 'nama_siswa'][$user->role] ?? null;
+        if ($relation && $nameField) {
+            $user->{$relation}()->update([$nameField => $user->name]);
+        }
 
         $this->auditAdmin('profile.update', $user, ['username' => $user->username]);
 

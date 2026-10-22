@@ -1,3 +1,4 @@
+import { currentAcademicYear } from '@/shared/utils/academicPeriod';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, Eye, Search } from 'lucide-react';
 import AdminPageShell from '@/shared/components/AdminPageShell';
@@ -10,7 +11,7 @@ import CustomSelect from '@/shared/components/CustomSelect';
 
 const DEFAULT_FILTERS = {
   semester: 'Ganjil',
-  tahun_ajaran: '2025/2026',
+  tahun_ajaran: currentAcademicYear(),
 };
 
 export default function AdminTranskripAkademikPage() {
@@ -44,7 +45,7 @@ export default function AdminTranskripAkademikPage() {
       setTahunAjaranList(data || []);
       const active = data?.find(t => String(t.status || '').toLowerCase() === 'aktif');
       if (active) {
-        setFilters(p => ({ ...p, tahun_ajaran: active.tahun_ajaran }));
+        setFilters(p => ({ ...p, tahun_ajaran: active.tahun_ajaran, semester: active.semester }));
       }
     }).catch(console.error);
   }, []);
@@ -118,7 +119,7 @@ export default function AdminTranskripAkademikPage() {
                   <CustomSelect
                     value={filters.tahun_ajaran}
                     onChange={(val) => setFilters(p => ({ ...p, tahun_ajaran: val }))}
-                    options={tahunAjaranList.length > 0 ? tahunAjaranList.map(ta => ({ value: ta.tahun_ajaran, label: ta.tahun_ajaran })) : [{ value: '2025/2026', label: '2025/2026' }]}
+                    options={tahunAjaranList.length > 0 ? tahunAjaranList.map(ta => ({ value: ta.tahun_ajaran, label: ta.tahun_ajaran })) : [{ value: currentAcademicYear(), label: currentAcademicYear() }]}
                     style={{ width: '100%' }}
                   />
                 </div>
@@ -348,7 +349,7 @@ export default function AdminTranskripAkademikPage() {
                 <CustomSelect
                   value={filters.tahun_ajaran}
                   onChange={(val) => setFilters(p => ({ ...p, tahun_ajaran: val }))}
-                  options={tahunAjaranList.length > 0 ? tahunAjaranList.map(ta => ({ value: ta.tahun_ajaran, label: ta.tahun_ajaran })) : [{ value: '2025/2026', label: '2025/2026' }]}
+                  options={tahunAjaranList.length > 0 ? tahunAjaranList.map(ta => ({ value: ta.tahun_ajaran, label: ta.tahun_ajaran })) : [{ value: currentAcademicYear(), label: currentAcademicYear() }]}
                   style={{ width: '100%' }}
                 />
               </div>

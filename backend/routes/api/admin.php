@@ -16,9 +16,9 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TahunAjaranController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index']);
-    Route::get('/audit-logs', [AuditLogController::class, 'index']);
+Route::middleware(['auth:sanctum', 'active'])->group(function () {
+    Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('permission:view_dashboard_admin,view_dashboard_kepsek,view_dashboard_guru');
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('permission:manage_all');
 
     Route::get('/murid/stats', [MuridController::class, 'stats'])->middleware('permission:manage_murid,view_data_siswa');
     Route::get('/murid', [MuridController::class, 'index'])->middleware('permission:manage_murid,view_data_siswa');
@@ -92,7 +92,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/profil-sekolah', [ProfilSekolahController::class, 'update']);
     });
 
-    Route::middleware('permission:manage_pengaturan_akun')->group(function () {
+    Route::middleware('permission:manage_all')->group(function () {
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings/{key}', [SettingsController::class, 'update']);
         Route::post('/settings/bulk', [SettingsController::class, 'bulkUpdate']);

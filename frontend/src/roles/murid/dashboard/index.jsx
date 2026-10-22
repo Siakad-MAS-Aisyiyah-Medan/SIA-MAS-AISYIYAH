@@ -6,6 +6,8 @@ import { getDisplayName } from '@/shared/utils/profile';
 import MainLayout from '@/shared/layouts/MainLayout';
 import { fetchPengumumanList } from '@/shared/pengumuman/services/pengumuman.service';
 import apiClient from '@/shared/services/apiClient';
+import { fetchTahunAjaran } from '@/shared/services/tahunAjaran.service';
+import { currentSemester } from '@/shared/utils/academicPeriod';
 
 const formatDate = (dateString) => {
   if (!dateString) return '-';
@@ -56,6 +58,7 @@ export default function SiswaDashboard() {
 
   const [announcements, setAnnouncements] = useState([]);
   const [totalMapel, setTotalMapel] = useState(0);
+  const [academicPeriod, setAcademicPeriod] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -73,7 +76,7 @@ export default function SiswaDashboard() {
         if (active) {
           const payload = response.data?.data;
           const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-          setTotalMapel(items.length);
+          setTotalMapel(response.data?.meta?.total ?? items.length);
         }
       })
       .catch(console.error);
@@ -86,6 +89,9 @@ export default function SiswaDashboard() {
         }
       })
       .catch(console.error);
+    fetchTahunAjaran().then(periods => {
+      if (active) setAcademicPeriod(periods.find(period => String(period.status).toLowerCase() === 'aktif') || null);
+    }).catch(console.error);
 
     return () => { active = false; };
   }, []);
@@ -95,8 +101,8 @@ export default function SiswaDashboard() {
   const cards = [
     { label: 'Total Mata Pelajaran', value: totalMapel.toString(), icon: BookOpen, gradient: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', shadow: 'rgba(5, 150, 105, 0.3)' },
     { label: 'Kelas Saat Ini', value: kelas?.nama_kelas || '-', icon: Users, gradient: 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%)', shadow: 'rgba(59, 130, 246, 0.3)' },
-    { label: 'Tahun Ajaran Aktif', value: kelas?.tahun_ajaran || '-', icon: CalendarDays, gradient: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)', shadow: 'rgba(245, 158, 11, 0.3)' },
-    { label: 'Semester Aktif', value: 'Ganjil', icon: ClipboardList, gradient: 'linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%)', shadow: 'rgba(139, 92, 246, 0.3)' },
+    { label: 'Tahun Ajaran Aktif', value: academicPeriod?.tahun_ajaran || kelas?.tahun_ajaran || '-', icon: CalendarDays, gradient: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)', shadow: 'rgba(245, 158, 11, 0.3)' },
+    { label: 'Semester Aktif', value: academicPeriod?.semester || currentSemester(), icon: ClipboardList, gradient: 'linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%)', shadow: 'rgba(139, 92, 246, 0.3)' },
   ];
 
   return (

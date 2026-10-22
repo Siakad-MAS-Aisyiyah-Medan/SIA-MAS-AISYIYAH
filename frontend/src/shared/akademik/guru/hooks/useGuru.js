@@ -1,3 +1,4 @@
+import { generateAccountPassword } from '@/shared/utils/accountPassword';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   fetchGuruList,
@@ -59,7 +60,7 @@ export function useGuru() {
   );
 
   const openAdd = () => {
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, password: generateAccountPassword() });
     setView('add');
   };
 
@@ -119,7 +120,7 @@ export function useGuru() {
         const payload = new FormData();
         const fallbackId = 'guru_' + Date.now().toString().slice(-6);
         const generatedUsername = formData.username || formData.nip_nuptk || formData.no_hp || fallbackId;
-        const defaultPassword = `admin123`;
+        const defaultPassword = formData.password || generateAccountPassword();
         const normalized = {
           ...formData,
           username: generatedUsername,

@@ -2,20 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Resources\MapelResource;
-use App\Models\Mapel;
-use App\Models\Siswa;
+use App\Services\MapelService;
 use App\Utils\ApiResponse;
-use App\Utils\AuditsAdminActions;
-use App\Utils\SearchInput;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use App\Utils\GuruPengampuUser;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class MapelController extends Controller
 {
+    public function __construct(private MapelService $service) {}
+
     public function index(Request $request)
     {
-        $paginator = $this->list(
+        $paginator = $this->service->list(
             $request->query('search'),
             (int) $request->query('per_page', 15)
         );
@@ -26,15 +26,15 @@ class MapelController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'nama_mapel' => 'required|string|max:100',
-            'id_guru' => 'required|exists:users,id_user',
+            'nama_mapel' => ['required', 'string', 'max:100', Rule::unique('mata_pelajaran')->where(fn ($q) => $q->where('tingkat', $request->tingkat))],
+            'id_guru' => ['required', 'integer', 'exists:users,id_user', new GuruPengampuUser],
             'tingkat' => 'required|in:X,XI,XII',
             'kelompok_mapel' => 'nullable|string|max:100',
             'id_kelas' => 'nullable|array',
-            'id_kelas.*' => 'exists:kelas,id_kelas',
+            'id_kelas.*' => 'integer|distinct|exists:kelas,id_kelas',
         ]);
 
-        $mapel = $this->create($validated);
+        $mapel = DB::transaction(fn () => $this->service->create($validated));
 
         return ApiResponse::success($mapel, 'Mata pelajaran berhasil ditambahkan', 201);
     }
@@ -42,92 +42,28 @@ class MapelController extends Controller
     public function update(Request $request, $id)
     {
         $validated = $request->validate([
-            'nama_mapel' => 'required|string|max:100',
-            'id_guru' => 'required|exists:users,id_user',
+            'nama_mapel' => ['required', 'string', 'max:100', Rule::unique('mata_pelajaran')->where(fn ($q) => $q->where('tingkat', $request->tingkat))->ignore($id, 'id_mapel')],
+            'id_guru' => ['required', 'integer', 'exists:users,id_user', new GuruPengampuUser],
             'tingkat' => 'required|in:X,XI,XII',
             'kelompok_mapel' => 'nullable|string|max:100',
             'id_kelas' => 'nullable|array',
-            'id_kelas.*' => 'exists:kelas,id_kelas',
+            'id_kelas.*' => 'integer|distinct|exists:kelas,id_kelas',
         ]);
 
-        $mapel = $this->processUpdate((int) $id, $validated);
+        $mapel = DB::transaction(fn () => $this->service->processUpdate((int) $id, $validated));
 
         return ApiResponse::success($mapel, 'Mata pelajaran berhasil diperbarui');
     }
 
     public function destroy($id)
     {
-        $this->delete((int) $id);
+        if (DB::table('nilai')->where('id_mapel', $id)->exists()
+            || DB::table('absensi')->where('id_mapel', $id)->exists()
+            || DB::table('skema_penilaian')->where('id_mapel', $id)->exists()) {
+            return ApiResponse::error('Mata pelajaran memiliki riwayat akademik dan tidak dapat dihapus.', 422);
+        }
+        $this->service->delete((int) $id);
 
         return ApiResponse::success(null, 'Mata pelajaran berhasil dihapus');
-    }
-
-    // --- Inlined from MapelService ---
-
-    use AuditsAdminActions;
-
-    private function list(?string $search = null, int $perPage = 15): LengthAwarePaginator
-    {
-        $query = Mapel::with(['guru.guru', 'kelas']);
-        $user = auth()->user();
-
-        if ($user && $user->role === 'siswa') {
-            $siswa = Siswa::where('id_user', $user->id_user)->first();
-            if ($siswa && $siswa->id_kelas) {
-                $query->whereHas('kelas', function ($q) use ($siswa) {
-                    $q->where('kelas_mapel.id_kelas', $siswa->id_kelas);
-                });
-            } else {
-                $query->whereRaw('1 = 0');
-            }
-        }
-
-        if ($term = SearchInput::escape($search)) {
-            $query->where(function ($q) use ($term) {
-                $q->where('nama_mapel', 'like', "%{$term}%")
-                    ->orWhereHas('guru.guru', fn ($g) => $g->where('nama_guru', 'like', "%{$term}%"));
-            });
-        }
-
-        $paginator = $query->orderBy('nama_mapel')->paginate($perPage);
-        $paginator->getCollection()->transform(
-            fn ($item) => (new MapelResource($item))->resolve()
-        );
-
-        return $paginator;
-    }
-
-    private function create(array $data): array
-    {
-        $idKelas = $data['id_kelas'] ?? [];
-        unset($data['id_kelas']);
-
-        $mapel = Mapel::create($data);
-        $mapel->kelas()->sync($idKelas);
-
-        $this->auditAdmin('mapel.create', $mapel, ['nama_mapel' => $mapel->nama_mapel]);
-
-        return (new MapelResource($mapel->load(['guru.guru', 'kelas'])))->resolve();
-    }
-
-    private function processUpdate(int $id, array $data): array
-    {
-        $idKelas = $data['id_kelas'] ?? [];
-        unset($data['id_kelas']);
-
-        $mapel = Mapel::findOrFail($id);
-        $mapel->update($data);
-        $mapel->kelas()->sync($idKelas);
-
-        $this->auditAdmin('mapel.update', $mapel, ['nama_mapel' => $mapel->nama_mapel]);
-
-        return (new MapelResource($mapel->fresh(['guru.guru', 'kelas'])))->resolve();
-    }
-
-    private function delete(int $id): void
-    {
-        $mapel = Mapel::findOrFail($id);
-        $this->auditAdmin('mapel.delete', $mapel, ['nama_mapel' => $mapel->nama_mapel]);
-        $mapel->delete();
     }
 }

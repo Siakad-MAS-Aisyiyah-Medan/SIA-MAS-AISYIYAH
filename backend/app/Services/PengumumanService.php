@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Http\Resources\PengumumanResource;
 use App\Models\Pengumuman;
-use App\Support\SearchInput;
 use App\Utils\AuditsAdminActions;
+use App\Utils\SearchInput;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -53,7 +53,7 @@ class PengumumanService
         return (new PengumumanResource($item))->resolve();
     }
 
-    public function update(int $id, array $data): array
+    public function processUpdate(int $id, array $data): array
     {
         $item = Pengumuman::findOrFail($id);
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import AdminPageShell from '@/shared/components/AdminPageShell';
 import { ArrowLeft, Eye, EyeOff, Loader2, Save, X, UserCircle2, Mail, Lock, ShieldCheck, KeyRound } from 'lucide-react';
-import { fetchMe } from '@/shared/services/auth.service';
+import { fetchMe, getToken, getRedirectPathForRole, saveSession } from '@/shared/services/auth.service';
 import { updateAdminProfile } from '@/shared/services/akun.service';
 import { ROLE_LABELS } from '@/config/roles.config';
 import { confirmAction, toastSuccess, toastError } from '@/shared/hooks/useConfirm';
@@ -47,6 +47,7 @@ export default function PengaturanSistemPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('');
   const [initialForm, setInitialForm] = useState(null);
@@ -65,6 +66,8 @@ export default function PengaturanSistemPage() {
       try {
         const data = await fetchMe();
         setRole(data?.user?.role || '');
+        setMustChangePassword(Boolean(data?.user?.must_change_password));
+        if (data?.user?.must_change_password) setIsEditing(true);
         const payload = {
           name: data?.user?.name || data?.profile?.nama_lengkap || data?.profile?.nama_kepala_sekolah || data?.user?.username || 'Pengguna',
           username: data?.user?.username || '',
@@ -105,6 +108,10 @@ export default function PengaturanSistemPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (mustChangePassword && !form.new_password) {
+      toastError('Ganti password', 'Masukkan password baru untuk mengganti password bawaan.');
+      return;
+    }
     if (!form.name?.trim()) {
       import('@/shared/hooks/useConfirm').then(({ toastValidation }) => {
         toastValidation('Periksa Kembali', 'Nama Lengkap wajib diisi.');
@@ -133,6 +140,9 @@ export default function PengaturanSistemPage() {
         payload.new_password_confirmation = form.new_password_confirmation;
       }
       await updateAdminProfile(payload);
+      const refreshed = await fetchMe();
+      saveSession({ ...refreshed, token: getToken(), redirect_path: getRedirectPathForRole(refreshed.user.role) });
+      setMustChangePassword(Boolean(refreshed.user.must_change_password));
       const nextState = { ...form, current_password: '', new_password: '', new_password_confirmation: '' };
       setInitialForm(nextState);
       setForm(nextState);
@@ -156,7 +166,7 @@ export default function PengaturanSistemPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: 'var(--color-text-muted)' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
             <div className="animate-spin" style={{ width: '40px', height: '40px', border: '3px solid var(--color-primary-light)', borderTopColor: 'var(--color-primary)', borderRadius: '50%' }} />
-            <p>Memuat profil admin...</p>
+            <p>Memuat profil akun...</p>
           </div>
         </div>
       </AdminPageShell>
@@ -183,6 +193,8 @@ export default function PengaturanSistemPage() {
             </button>
           )}
         </PageHeader>
+
+        {mustChangePassword && <p role="alert" style={{ padding: '1rem', background: '#fffbeb', borderRadius: '10px', marginBottom: '1rem' }}>Password akun ini masih menggunakan password bawaan. Isi password saat ini dan password baru (minimal 8 karakter) sebelum menggunakan fitur sekolah.</p>}
 
         {isEditing ? (
           <form onSubmit={handleSave} className="form-panel p-4 sm:p-8">

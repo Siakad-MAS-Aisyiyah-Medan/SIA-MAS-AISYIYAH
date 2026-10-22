@@ -24,7 +24,7 @@ export default function KelasTable({
 }) {
   const handleDownload = () => {
     const dataToExport = filteredData.map(item => ({
-      'Tahun Ajaran': item.tahun_ajaran || '2025/2026',
+      'Tahun Ajaran': item.tahun_ajaran || '-',
       'Nama Kelas': item.nama_kelas || '-',
       'Tingkatan': item.tingkat || '-',
       'Jurusan': item.jurusan || '-',
@@ -105,7 +105,7 @@ export default function KelasTable({
                 return (
                   <tr key={kelas.id_kelas}>
                     <td style={{ color: 'var(--color-text-muted)', fontWeight: 600, paddingLeft: '2rem' }}>{idx + 1}</td>
-                    <td>{kelas.tahun_ajaran || '2025/2026'}</td>
+                    <td>{kelas.tahun_ajaran || '-'}</td>
                     <td style={{ fontWeight: 600, color: 'var(--color-primary-dark)' }}>{kelas.nama_kelas}</td>
                     <td>
                       <span style={{ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, background: 'var(--color-primary-soft)', color: 'var(--color-primary-dark)' }}>

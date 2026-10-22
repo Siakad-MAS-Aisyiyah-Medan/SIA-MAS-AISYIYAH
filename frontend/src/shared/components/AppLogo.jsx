@@ -25,6 +25,10 @@ export default function AppLogo({
     <span className={wrapClass}>
       <img
         src={srcUrl || '/logo-aisyiyah.jpg'}
+        onError={(event) => {
+          event.currentTarget.onerror = null;
+          event.currentTarget.src = '/logo-aisyiyah.jpg';
+        }}
         alt={alt}
         className={`app-logo-img ${className}`.trim()}
         style={{ width: dimension, height: dimension }}

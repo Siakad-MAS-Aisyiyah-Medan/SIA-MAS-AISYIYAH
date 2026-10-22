@@ -1,10 +1,8 @@
 import apiClient from '@/shared/services/apiClient';
-import { unwrapPaginated } from '@/shared/services/apiHelpers';
+import { fetchAllPages } from '@/shared/services/apiHelpers';
 
 export async function fetchGuruList(params = {}) {
-  const response = await apiClient.get('/guru', { params });
-  const { items } = unwrapPaginated(response);
-  return items;
+  return fetchAllPages(apiClient, '/guru', params);
 }
 
 export async function createGuru(payload) {

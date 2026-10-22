@@ -11,7 +11,7 @@ return [
             'image/jpg',
             'image/png',
         ],
-        'storage_disk' => 'public',
+        'storage_disk' => 'local',
         'storage_path_prefix' => 'ppdb',
     ],
 ];

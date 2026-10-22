@@ -84,7 +84,7 @@ class PendaftaranStateService
     ];
 
     /**
-     * @deprecated Gunakan PpdbRegistrationService::start() — jangan panggil dari registrasi akun.
+     * @deprecated Mulai formulir melalui endpoint PPDB start, terpisah dari registrasi akun.
      */
     public function createDraftForUser(User $user, array $defaults = []): Pendaftaran
     {
@@ -151,6 +151,7 @@ class PendaftaranStateService
 
         return DB::transaction(function () use ($pendaftaran) {
             $pendaftaran->ppdb_status = 'diajukan';
+            $pendaftaran->status_pendaftaran = 'submitted';
             $pendaftaran->status_kelulusan = 'Pending';
             $pendaftaran->submitted_at = now();
             $pendaftaran->save();
@@ -271,15 +272,7 @@ class PendaftaranStateService
             }
         }
 
-        $uploaded = $pendaftaran->berkas()->pluck('jenis_berkas')->all();
-        foreach (PpdbBerkasService::allJenisKeys() as $jenis) {
-            $normalized = PpdbBerkasService::normalizeJenis($jenis);
-            $found = in_array($jenis, $uploaded, true) || in_array($normalized, $uploaded, true);
-            if (! $found) {
-                $label = PpdbBerkasService::JENIS[$jenis] ?? $jenis;
-                throw new InvalidArgumentException("Berkas {$label} wajib diunggah sebelum submit.");
-            }
-        }
+        app(PpdbBerkasService::class)->assertAllRequiredUploaded($pendaftaran->load('dokumen'));
     }
 
     protected function filterCalonInput(array $data): array

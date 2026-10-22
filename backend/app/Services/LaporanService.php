@@ -18,9 +18,7 @@ use InvalidArgumentException;
 
 class LaporanService
 {
-    public function __construct(
-        private AbsensiSiswaService $absensiSiswa
-    ) {}
+    public function __construct(private AbsensiSiswaService $absensiSiswa) {}
 
     public function generate(User $actor, string $jenis, array $filters): array
     {
@@ -50,7 +48,7 @@ class LaporanService
         ], $result);
     }
 
-    private function laporanSiswa(array $filters, int $perPage): array
+    public function laporanSiswa(array $filters, int $perPage): array
     {
         $query = User::with(['siswa.kelas'])
             ->where('role', 'siswa');
@@ -107,7 +105,7 @@ class LaporanService
         ];
     }
 
-    private function laporanGuru(array $filters, int $perPage): array
+    public function laporanGuru(array $filters, int $perPage): array
     {
         $query = User::with('guru')->where('role', 'guru');
 
@@ -142,7 +140,7 @@ class LaporanService
         ];
     }
 
-    private function laporanPpdb(array $filters, int $perPage): array
+    public function laporanPpdb(array $filters, int $perPage): array
     {
         $query = Pendaftaran::with('user')->orderByDesc('updated_at');
 
@@ -188,7 +186,7 @@ class LaporanService
         ];
     }
 
-    private function laporanAbsensiSiswa(array $filters, int $perPage): array
+    public function laporanAbsensiSiswa(array $filters, int $perPage): array
     {
         $query = Absensi::with(['siswa.siswa', 'kelas', 'mapel']);
         $this->applyAbsensiSiswaFilters($query, $filters);
@@ -205,8 +203,7 @@ class LaporanService
         ];
     }
 
-
-    private function laporanNilai(array $filters, int $perPage): array
+    public function laporanNilai(array $filters, int $perPage): array
     {
         $query = Nilai::with(['siswa.siswa', 'mapel']);
         $this->applyNilaiFilters($query, $filters);
@@ -242,7 +239,7 @@ class LaporanService
         ];
     }
 
-    private function laporanJadwal(array $filters, int $perPage): array
+    public function laporanJadwal(array $filters, int $perPage): array
     {
         $query = JadwalPelajaran::with(['kelas', 'mapel', 'guru.guru']);
         $this->applyJadwalFilters($query, $filters);
@@ -271,7 +268,7 @@ class LaporanService
         ];
     }
 
-    private function assertJenisAllowed(User $actor, string $jenis): void
+    public function assertJenisAllowed(User $actor, string $jenis): void
     {
         $allowed = config('laporan.role_jenis.'.$actor->role, []);
         if ($actor->role === 'admin') {
@@ -282,7 +279,7 @@ class LaporanService
         }
     }
 
-    private function normalizeFilters(array $filters): array
+    public function normalizeFilters(array $filters): array
     {
         if (! empty($filters['bulan'])) {
             $start = Carbon::createFromFormat('Y-m', $filters['bulan'])->startOfMonth();
@@ -293,13 +290,14 @@ class LaporanService
         return $filters;
     }
 
-    private function applyRoleScope(User $actor, string $jenis, array $filters): array
+    public function applyRoleScope(User $actor, string $jenis, array $filters): array
     {
         if ($actor->role === 'admin' || $actor->role === 'kepsek') {
             return $filters;
         }
 
         if ($actor->role === 'guru') {
+            $filters['id_guru'] = $actor->id_user;
             if (in_array($jenis, ['absensi_siswa', 'nilai', 'jadwal'], true)) {
                 $mapelIds = Mapel::where('id_guru', $actor->id_user)->pluck('id_mapel')->all();
                 $kelasIds = JadwalPelajaran::where('id_guru', $actor->id_user)
@@ -329,9 +327,7 @@ class LaporanService
             $filters['id_user_siswa'] = $actor->id_user;
             if ($jenis === 'jadwal') {
                 $siswa = Siswa::where('id_user', $actor->id_user)->first();
-                if ($siswa?->id_kelas) {
-                    $filters['id_kelas'] = $siswa->id_kelas;
-                }
+                $filters['id_kelas'] = $siswa?->id_kelas ?? -1;
             }
             if ($jenis === 'nilai') {
                 $filters['validated_by_wali'] = true;
@@ -341,7 +337,7 @@ class LaporanService
         return $filters;
     }
 
-    private function applyAbsensiSiswaFilters($query, array $filters): void
+    public function applyAbsensiSiswaFilters($query, array $filters): void
     {
         if (! empty($filters['id_kelas'])) {
             $query->where('id_kelas', $filters['id_kelas']);
@@ -373,8 +369,7 @@ class LaporanService
         }
     }
 
-
-    private function applyNilaiFilters($query, array $filters): void
+    public function applyNilaiFilters($query, array $filters): void
     {
         if (! empty($filters['id_kelas'])) {
             $query->whereIn('id_user_siswa', function ($q) use ($filters) {
@@ -402,7 +397,7 @@ class LaporanService
         }
     }
 
-    private function applyJadwalFilters($query, array $filters): void
+    public function applyJadwalFilters($query, array $filters): void
     {
         if (! empty($filters['id_kelas'])) {
             $query->where('id_kelas', $filters['id_kelas']);
@@ -421,7 +416,7 @@ class LaporanService
         }
     }
 
-    private function applyDateRangeOnColumn($query, string $column, array $filters): void
+    public function applyDateRangeOnColumn($query, string $column, array $filters): void
     {
         if (! empty($filters['tanggal_dari'])) {
             $query->whereDate($column, '>=', $filters['tanggal_dari']);
@@ -431,7 +426,7 @@ class LaporanService
         }
     }
 
-    private function metaFromPaginator(LengthAwarePaginator $paginator): array
+    public function metaFromPaginator(LengthAwarePaginator $paginator): array
     {
         return [
             'current_page' => $paginator->currentPage(),
@@ -441,7 +436,7 @@ class LaporanService
         ];
     }
 
-    private function publicFilters(array $filters): array
+    public function publicFilters(array $filters): array
     {
         return collect($filters)->only([
             'tahun_ajaran', 'semester', 'id_kelas', 'id_mapel', 'tanggal_dari',

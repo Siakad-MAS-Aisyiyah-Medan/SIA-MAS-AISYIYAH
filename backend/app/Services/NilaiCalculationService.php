@@ -49,6 +49,10 @@ class NilaiCalculationService
             );
         }
 
+        if ($tugas === null || $uts === null || $uas === null) {
+            $nilaiAkhir = null;
+        }
+
         return [
             'nilai_tugas' => $tugas,
             'nilai_uts' => $uts,
@@ -57,7 +61,7 @@ class NilaiCalculationService
             'nilai_sikap' => $sikap,
             'nilai_akhir' => $nilaiAkhir,
             'nilai_angka' => $nilaiAkhir,
-            'predikat' => $this->predikat($nilaiAkhir),
+            'predikat' => $nilaiAkhir === null ? null : $this->predikat($nilaiAkhir),
         ];
     }
 

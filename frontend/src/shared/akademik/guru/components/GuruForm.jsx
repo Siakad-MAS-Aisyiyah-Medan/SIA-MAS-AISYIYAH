@@ -73,7 +73,7 @@ export default function GuruForm({ view, formData, loading, onChange, onSubmit, 
                     </p>
                     <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.5rem', lineHeight: 1.6 }}>
                       <li><strong>Username:</strong> {formData.username || formData.nip_nuptk || formData.no_hp || '(Menunggu input NIP/NUPTK/No HP)'}</li>
-                      <li><strong>Password:</strong> admin123</li>
+                      <li><strong>Password awal:</strong> <code>{formData.password}</code> (catat sebelum menyimpan)</li>
                     </ul>
                   </div>
                 </div>

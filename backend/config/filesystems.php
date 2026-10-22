@@ -33,7 +33,7 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => base_path('storage/app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

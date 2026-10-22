@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\AbsensiResource;
 use App\Models\Absensi;
+use App\Models\JadwalPelajaran;
 use App\Models\Mapel;
 use App\Models\Siswa;
 use App\Models\User;
@@ -16,7 +17,7 @@ class AbsensiSiswaService
 {
     public function getFormData(int $guruId, array $params): array
     {
-        $this->assertGuruCanRecord($guruId, (int) $params['id_mapel']);
+        $this->assertTeachingContext($guruId, $params);
 
         $siswaList = Siswa::with('user')
             ->aktif()
@@ -28,7 +29,7 @@ class AbsensiSiswaService
             ->where('id_kelas', $params['id_kelas'])
             ->where('id_mapel', $params['id_mapel'])
             ->whereDate('tanggal', $params['tanggal'])
-            ->where('jam_mulai', $params['jam_mulai'])
+            ->where('jam_mulai', $params['jam_mulai'].':00')
             ->get()
             ->keyBy('id_user_siswa');
 
@@ -65,7 +66,15 @@ class AbsensiSiswaService
         $meta = $payload['meta'];
         $items = $payload['items'] ?? [];
 
-        $this->assertGuruCanRecord($guruId, (int) $meta['id_mapel']);
+        $this->assertTeachingContext($guruId, $meta);
+        $studentIds = collect($items)->pluck('id_user_siswa');
+        $validCount = Siswa::aktif()->where('id_kelas', $meta['id_kelas'])
+            ->whereIn('id_user', $studentIds)->count();
+        if ($validCount !== $studentIds->unique()->count()) {
+            throw new InvalidArgumentException('Terdapat murid yang bukan anggota aktif kelas ini.');
+        }
+        $meta['jam_mulai'] .= ':00';
+        $meta['jam_selesai'] .= ':00';
 
         return DB::transaction(function () use ($guruId, $meta, $items) {
             $saved = [];
@@ -76,7 +85,11 @@ class AbsensiSiswaService
                     throw new InvalidArgumentException('Status absensi tidak valid.');
                 }
 
-                $absensi = Absensi::updateOrCreate(
+                $absensi = Absensi::where('id_user_siswa', $row['id_user_siswa'])
+                    ->where('id_mapel', $meta['id_mapel'])
+                    ->whereDate('tanggal', $meta['tanggal'])
+                    ->where('jam_mulai', $meta['jam_mulai'])->first() ?? new Absensi;
+                $absensi->fill(array_merge(
                     [
                         'id_user_siswa' => $row['id_user_siswa'],
                         'id_mapel' => $meta['id_mapel'],
@@ -93,7 +106,8 @@ class AbsensiSiswaService
                         'semester' => $meta['semester'],
                         'keterangan' => $row['keterangan'] ?? null,
                     ]
-                );
+                ));
+                $absensi->save();
 
                 $saved[] = (new AbsensiResource($absensi->load(['siswa.siswa', 'kelas', 'mapel'])))->resolve();
             }
@@ -104,7 +118,7 @@ class AbsensiSiswaService
 
     public function getHistoryMeetings(int $guruId, array $params): Collection
     {
-        $this->assertGuruCanRecord($guruId, (int) $params['id_mapel']);
+        $this->assertTeachingContext($guruId, $params);
 
         return Absensi::query()
             ->select('tanggal', 'jam_mulai', 'jam_selesai', 'tahun_ajaran', 'semester')
@@ -251,16 +265,30 @@ class AbsensiSiswaService
 
     public function deleteMeeting(int $guruId, array $params)
     {
-        $this->assertGuruCanRecord($guruId, (int) $params['id_mapel']);
+        $this->assertTeachingContext($guruId, $params);
 
         $jamMulai = $params['jam_mulai'].':00';
         $jamSelesai = $params['jam_selesai'].':00';
 
         Absensi::where('id_kelas', $params['id_kelas'])
             ->where('id_mapel', $params['id_mapel'])
-            ->where('tanggal', $params['tanggal'])
+            ->whereDate('tanggal', $params['tanggal'])
             ->where('jam_mulai', $jamMulai)
             ->where('jam_selesai', $jamSelesai)
             ->delete();
+    }
+
+    private function assertTeachingContext(int $guruId, array $params): void
+    {
+        $this->assertGuruCanRecord($guruId, (int) $params['id_mapel']);
+        $mapel = Mapel::findOrFail($params['id_mapel']);
+        if (! $mapel->kelas()->where('kelas.id_kelas', $params['id_kelas'])->exists()) {
+            throw new InvalidArgumentException('Mata pelajaran tidak ditugaskan pada kelas ini.');
+        }
+        if (! empty($params['id_jadwal']) && ! JadwalPelajaran::where('id_jadwal', $params['id_jadwal'])
+            ->where('id_kelas', $params['id_kelas'])->where('id_mapel', $params['id_mapel'])
+            ->where('id_guru', $guruId)->exists()) {
+            throw new InvalidArgumentException('Jadwal tidak sesuai dengan kelas dan mata pelajaran.');
+        }
     }
 }

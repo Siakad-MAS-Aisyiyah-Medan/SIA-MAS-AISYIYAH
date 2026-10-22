@@ -41,7 +41,7 @@ export default function SiswaKelasPage() {
               <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#064e3b' }}>Informasi Murid</h2>
             </div>
             <div style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '1rem', alignItems: 'center', fontSize: '0.875rem' }}>
+              <div className="responsive-form-row" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '1rem', alignItems: 'center', fontSize: '0.875rem' }}>
                 <div style={{ fontWeight: 600, color: '#64748b' }}>Nama Lengkap</div>
                 <div style={{ fontWeight: 500, color: '#0f172a' }}>: {profile?.nama_siswa || user?.name || '-'}</div>
                 

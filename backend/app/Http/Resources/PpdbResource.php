@@ -5,7 +5,6 @@ namespace App\Http\Resources;
 use App\Services\PpdbBerkasService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class PpdbResource extends JsonResource
 {
@@ -137,7 +136,7 @@ class PpdbResource extends JsonResource
                 'jenis_berkas' => $jenis,
                 'label' => $label,
                 'file_path' => $filePath,
-                'url' => Storage::disk('public')->url($filePath),
+                'url' => PpdbBerkasService::documentUrl($this->id_pendaftaran, $jenis),
                 'status_verifikasi' => 'valid',
                 'status' => 'valid',
                 'catatan' => $dokumen->catatan_dokumen,

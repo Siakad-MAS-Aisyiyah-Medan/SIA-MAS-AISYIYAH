@@ -27,10 +27,18 @@ class GuruImport
                     empty(trim($row['nama'] ?? '')) || trim($row['nama']) === '-'
                 ) {
                     $rowIndex++;
+
                     continue;
                 }
 
                 $nip = $row['nip'];
+                if (! in_array(strtoupper(trim((string) ($row['lp'] ?? ''))), ['L', 'P'], true)) {
+                    throw new Exception('Baris '.$rowIndex.': Kolom lp wajib L atau P.');
+                }
+                $password = (string) ($row['password'] ?? '');
+                if (strlen($password) < 8) {
+                    throw new Exception('Baris '.$rowIndex.': Kolom password wajib diisi minimal 8 karakter.');
+                }
 
                 // Cek apakah NIP sudah ada
                 if (Guru::where('nip', $nip)->exists()) {
@@ -46,7 +54,7 @@ class GuruImport
                     'name' => $row['nama'],
                     'username' => $nip,
                     'email' => null,
-                    'password' => Hash::make('admin123'),
+                    'password' => Hash::make($password),
                     'role' => 'guru',
                     'status_aktif' => true,
                     'status_akun' => 'aktif',
@@ -57,7 +65,7 @@ class GuruImport
                     'id_user' => $user->id_user,
                     'nip' => $nip,
                     'nama_guru' => $row['nama'],
-                    'jenis_kelamin' => isset($row['lp']) && strtoupper($row['lp']) == 'P' ? 'P' : 'L',
+                    'jenis_kelamin' => strtoupper(trim((string) $row['lp'])) === 'P' ? 'P' : 'L',
                     'agama' => $row['agama'] ?? 'Islam',
                     'alamat' => $row['alamat'] ?? '-',
                     'no_hp' => $row['no_hp'] ?? '-',
@@ -67,7 +75,7 @@ class GuruImport
                 $rowIndex++;
             }
             DB::commit();
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;
         }
